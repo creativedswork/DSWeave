@@ -1,0 +1,32 @@
+{
+  "name": "dsweave",
+  "version": "0.0.0",
+  "private": true,
+  "description": "DSWeave — 空间化知识引擎：拖入文件 → Agent 理解 → 产出 3D 沉浸式知识场景",
+  "type": "module",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "scripts": {
+    "build": "tsc -b packages/core packages/protocol packages/agent packages/host && pnpm --filter @dsweave/player build && pnpm --filter @dsweave/web build",
+    "typecheck": "tsc -b packages/core packages/protocol packages/agent packages/host && pnpm --filter @dsweave/web --filter @dsweave/player exec tsc --noEmit -p tsconfig.json",
+    "clean": "tsc -b --clean packages/core packages/protocol packages/agent packages/host && rimraf \"packages/*/dist\" \"packages/*/.tsbuildinfo\"",
+    "dev:web": "pnpm --filter @dsweave/web dev",
+    "dev:player": "pnpm --filter @dsweave/player dev",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.0.0",
+    "rimraf": "^6.0.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  }
+}
