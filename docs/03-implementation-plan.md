@@ -119,6 +119,7 @@ node -v && pnpm -v
 - [ ] 输出类型注册表 `OutputType` + 能力注册表对齐（输出菜单从能力派生）。
 - [ ] **`scene.html` 能力**：把 `SceneSpec + 资产` 注入**预构建 Player bundle** → 导出自包含单文件 HTML（Player JS 内联、SceneSpec 内联、glb base64）。2D 模式即 `report.html`。
 - [ ] `gltf.render`、`fs.write` 能力；缓存命中标识（key 含 Player 版本）。
+- [ ] **产物处理与交付**（详见技术设计 §5.4）：`Artifact`(core) 类型；内容寻址落盘 `.dsweave/artifacts/<hash>/`；单文件直接交付，多文件 dist 起本地静态服务 `/_artifacts/<hash>/` 预览 + zip 下载；产物可「提升」为新 source 节点（复用 `FileRef.assets`）。
 
 `packages/agent`（真实/可插拔）：
 - [ ] `tools/`：把 Host 能力暴露为 tool_call；约束 Agent **只产出 SceneSpec**，不写代码。

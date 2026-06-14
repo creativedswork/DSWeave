@@ -13,12 +13,21 @@ export const zFileType = z.enum([
   'unknown',
 ]);
 
+export const zFileAsset = z.object({
+  path: z.string(),
+  mime: z.string().optional(),
+  size: z.number().optional(),
+  hash: z.string().optional(),
+  role: z.enum(['buffer', 'image', 'other']).optional(),
+});
+
 export const zFileRef = z.object({
   uri: z.string(),
   mime: z.string(),
   type: zFileType,
   size: z.number().optional(),
   hash: z.string().optional(),
+  assets: z.array(zFileAsset).optional(),
 });
 
 export const zOutputTypeId = z.enum(['scene.html', 'report.html', 'app.react', 'custom']);

@@ -43,12 +43,22 @@
 // MVP: gltf 模型 + 文档类并列；video/audio 后置
 export type FileType = 'gltf' | 'md' | 'pdf' | 'txt' | 'html' | 'image' | 'data' | 'unknown';
 
+// gltf 等多文件资源的依赖项（相对根文件目录的路径），如 .bin 与纹理
+export interface FileAsset {
+  path: string;                              // 相对根目录的路径（已 decode）
+  mime?: string;
+  size?: number;
+  hash?: string;
+  role?: 'buffer' | 'image' | 'other';
+}
+
 export interface FileRef {
-  uri: string;            // file:// 或 host 资源 id
+  uri: string;            // 逻辑标识：原始文件名 / 工作目录相对路径（可持久化，非运行时 blob）
   mime: string;
   type: FileType;
   size?: number;
   hash?: string;          // 内容寻址（缓存键的一部分）
+  assets?: FileAsset[];   // 多文件资源的依赖清单（gltf 的 .bin/纹理）；缺省=自包含单文件（.glb / 内嵌 data:）
 }
 
 // 给人看的预览
@@ -347,7 +357,62 @@ flowchart LR
 - **交付灵活**：默认单文件 HTML（双击即看/可分享），亦可 dist。
 - **平滑长出 `app.react`**：复杂交付版＝同一个 Player 以工程形式导出；`scene.html` / `report.html`(2D 模式) / `app.react` **共用一套 Player 运行时**。
 
-### 5.3 缓存键
+### 5.4 产物（Artifact）处理与交付
+
+> 关键洞察：**产物处理是 gltf 输入的"镜像"**。输入的 gltf 是「根文件 + 依赖资源」，输出的前端 app 也是「入口 HTML + 一堆 chunk/资源」。因此产物复用与 `FileRef` 同构的 **Bundle（根 + 依赖清单）** 抽象，不引入新概念。
+
+#### 5.4.1 Artifact 类型（属于 `core`）
+
+```ts
+export interface Artifact {
+  id: string;
+  outputTypeId: string;                 // 'scene.html' | 'report.html' | 'app.react'
+  produces: string;                     // mime；目录产物为 'inode/directory'
+  delivery: 'single-file' | 'directory';// 交付形态
+  root: FileRef;                         // 入口文件（如 index.html / scene.html）
+  // root.assets 复用 FileRef.assets：directory 交付时列出 dist 内的 chunk/资产
+  createdFromHash: string;              // 缓存键 = f(图结构 + Player 版本 + SceneSpec)
+  fromNodeId?: string;                  // 由哪个 output 节点产生
+  bytes?: number;                       // 总字节
+}
+```
+
+#### 5.4.2 两类产物，处理方式不同
+
+| 输出类型 | 形态 | 交付 | 预览 |
+| --- | --- | --- | --- |
+| `scene.html` / `report.html` | **自包含单文件** | 双击即开，零依赖 | `<iframe>` 用 blob/srcdoc 直接预览 |
+| `app.react` | **多文件 dist 目录** | Host 起本地静态服务 + zip 下载（可选 singlefile 压成单文件） | `<iframe src>` 指向 Host 服务 URL |
+
+> 技术点：**多文件 dist 用 `<iframe>` 指向 blob 会因相对路径加载不到 chunk/资产**——与 gltf 相对路径同一个坑。两条解法：① 全部内联成单文件；② Host 用真实 URL 提供静态服务。单文件优先。
+
+#### 5.4.3 Host 侧处理流程（M4）
+
+```mermaid
+flowchart LR
+  A["Agent 产出 SceneSpec(纯数据)"] --> B["Host 校验 + 注入预构建 Player"]
+  B -->|scene.html| C1["内联 Player JS + SceneSpec + glb base64<br/>= 单个 .html"]
+  B -->|app.react| C2["输出 dist/ 目录<br/>index.html + chunks + assets"]
+  C1 --> D["内容寻址落盘<br/>.dsweave/artifacts/&lt;hash&gt;/"]
+  C2 --> D
+  D --> E["Host 暴露给前端"]
+  E --> F1["ArtifactViewer 预览"]
+  E --> F2["下载(.html / .zip) / 在文件夹显示"]
+  E --> F3["提升为新 source 节点(闭环)"]
+```
+
+1. **落盘 + 缓存**：写入沙箱工作目录 `./.dsweave/artifacts/<hash>/`，`hash = f(图结构 + Player 版本 + SceneSpec)`。二次运行命中缓存秒出。
+2. **预览**：单文件流给前端用 `<iframe>` 预览；多文件 dist 由 Host 在本地 HTTP 服务挂载 `/_artifacts/<hash>/index.html`，`<iframe src>` 指向它（相对资产正常解析）。未来 Tauri 换自定义协议，前端零改。
+3. **交付/下载**：单文件直接存 `scene.html`（可分享、双击即看）；多文件 `zip` 整个 dist，或可选用 `vite-plugin-singlefile` 把 `app.react` 也压成单文件（`player` 包已具备单文件能力）。「在文件夹中显示」由 Host 调系统打开。
+4. **提升为新 source 节点（闭环）**：产物一键变成画布上的新 `source` 节点喂给下一个工作流（呼应"一切皆文件"）。多文件产物直接复用 `FileRef.assets`（根 + 依赖清单），无需新抽象。
+
+#### 5.4.4 默认策略
+
+**默认走单文件交付**（`scene.html` / `report.html`）：可分享、可缓存为单个 blob、无需服务、确定性最好。`app.react`（目录）只留给真正需要复杂交互/路由的场景，交付时给 zip + 本地预览服务两种。
+
+> `DSWeaveEvent` 的 `artifact` 事件携带 `Artifact`（或其 id），前端据此驱动 `ArtifactViewer`。
+
+### 5.5 缓存键
 
 ```
 cacheKey = sha256(capability.name + version + sortedInputHashes + JSON(normalizedParams))
@@ -422,6 +487,12 @@ interface DSWeaveStore {
 2. Host 异步生成 `PreviewMeta`（给人看）与 `Understanding`（给 Agent 看），流式回填。
 3. 节点显示预览 + "理解中/已理解"徽标。
 
+**多文件资源（gltf 文件夹）摄入**：`.gltf` 会引用外部 `.bin` 与纹理（常带子目录），是一个「文件夹」而非单文件。前端支持两条采集路径：
+- 拖入文件夹：`DataTransferItem.webkitGetAsEntry()` 递归读目录（带相对路径）；
+- 「+ 文件夹」按钮：`<input webkitdirectory>`，用 `webkitRelativePath`。
+
+采集后按 bundle 归并：解析 gltf 的 `buffers/images[].uri`，按相对路径匹配出依赖，记入 `FileRef.assets`；被引用的纹理/`.bin` **不**单独成节点。M1（纯前端预览）把相对 uri 改写为 `blob:` 绝对 URL 喂给 `<model-viewer>`；M2+ 接入 Host 后用工作目录真实路径解析，不再需要 blob。`.glb` 与内嵌 `data:` 的 gltf 为自包含单文件（`assets` 为空）。
+
 ### 7.4 预览方案
 
 | 类型 | 方案 |
@@ -448,20 +519,28 @@ classDiagram
   class FlowGraph
   class FlowNode
   class FlowEdge
+  class FileRef
+  class FileAsset
   class Understanding
   class OutputType
   class SceneSpec
+  class Artifact
   class DSWeaveEvent
   class Capability
   FlowGraph "1" o-- "*" FlowNode
   FlowGraph "1" o-- "*" FlowEdge
+  FlowNode "1" o-- "0..1" FileRef
   FlowNode "1" o-- "0..1" Understanding
+  FileRef "1" o-- "*" FileAsset : 多文件依赖(gltf)
   SceneSpec ..> Capability : scene.html 注入
   OutputType ..> Capability : 派生自
+  Capability ..> Artifact : 执行产出
+  Artifact "1" o-- "1" FileRef : root(可含 assets)
+  Artifact ..> FlowNode : 提升为 source(闭环)
   Capability ..> DSWeaveEvent : 执行产生
 ```
 
-- `core`：`FlowGraph` 系列 + `Understanding`/`Chunk` + `SceneSpec` + zod schema（唯一真相）。
+- `core`：`FlowGraph` 系列 + `FileRef`/`FileAsset` + `Understanding`/`Chunk` + `SceneSpec` + `Artifact` + zod schema（唯一真相）。
 - `protocol`：`DSWeaveEvent`/`PromptInput`，依赖 `core`。
 - `host`：`Capability` + `OutputType` + `UnderstandingProvider` + `ContextBuilder`，依赖 `core`/`protocol`。
 - `player`：自研 R3F 运行时，消费 `SceneSpec` 渲染 3D 场景；被 `scene.html` 能力打包。

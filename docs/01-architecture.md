@@ -167,7 +167,32 @@ flowchart LR
 
 ---
 
-## 6. 安全与信任边界
+## 6. 产物（Artifact）处理与交付
+
+> 产物处理是 gltf 输入的**镜像**：输入 gltf＝「根文件 + 依赖资源」，输出前端 app＝「入口 HTML + chunk/资产」。两端复用同一套 **Bundle（根 + 依赖清单）** 抽象（`FileRef.assets` / `Artifact`），不引入新概念。
+
+两类产物：
+
+- **自包含单文件**（`scene.html` / `report.html`，**默认**）：Player JS + SceneSpec + glb base64 全内联成一个 `.html`，双击即开、可分享、可缓存为单个 blob，前端 `<iframe>` 直接预览。
+- **多文件 dist 目录**（`app.react`，复杂交付）：`<iframe>` 指向 blob 会因相对路径加载不到 chunk/资产（同 gltf 相对路径坑），故由 **Host 起本地静态服务** `/_artifacts/<hash>/` 用真实 URL 提供；下载则 `zip` 整个目录（或可选 singlefile 压成单文件）。
+
+```mermaid
+flowchart LR
+  A["Agent: SceneSpec(数据)"] --> CAP["Host: scene.html 能力<br/>注入预构建 Player"]
+  CAP -->|单文件| H1["内联 → 自包含 .html"]
+  CAP -->|app.react| H2["dist/ 目录"]
+  H1 --> ST["内容寻址落盘<br/>.dsweave/artifacts/&lt;hash&gt;/"]
+  H2 --> ST
+  ST --> V1["预览(iframe / 本地服务)"]
+  ST --> V2["下载(.html / .zip) · 在文件夹显示"]
+  ST --> V3["提升为新 source 节点(闭环)"]
+```
+
+落盘内容寻址（`hash = f(图结构 + Player 版本 + SceneSpec)`）二次运行命中缓存；产物可一键「提升」为新 `source` 节点喂给下一个工作流，多文件产物直接复用 `FileRef.assets`。详见 `02-technical-design.md` §5.4。
+
+---
+
+## 7. 安全与信任边界
 
 - **沙箱工作目录**：每个 session 绑定工作目录，Agent 文件读写默认限制在其中。
 - **审批闸门**：写文件 / 跑命令 / 网络访问经 `request_permission` 由用户确认；可"本会话记住"。
@@ -176,7 +201,7 @@ flowchart LR
 
 ---
 
-## 7. 横切关注点
+## 8. 横切关注点
 
 | 关注点 | 方案 |
 | --- | --- |
@@ -184,6 +209,7 @@ flowchart LR
 | 输出受限 | 输出菜单 = 注册表里未隐藏的 OutputType，每种背后有真实能力 |
 | 状态管理 | 前端 Zustand（图状态 + 执行态分片），core IR 为持久化真相 |
 | 缓存 | Host 内容寻址：key = hash(输入文件 + 边语义 + 工具版本) |
+| 产物交付 | Bundle 抽象(根+依赖)：单文件优先(内联)，多文件 dist 走本地服务+zip；可提升为新 source 节点(闭环)。详见技术设计 §5.4 |
 | 日志/可观测 | 结构化事件流（session/update 派生），前端时间线 + 终端镜像 |
 | 错误处理 | 节点级 error 状态 + 可重试；Agent stop_reason 分类展示 |
 | 测试 | core/protocol 单测；host 集成测（Mock Agent）；web E2E（Playwright） |

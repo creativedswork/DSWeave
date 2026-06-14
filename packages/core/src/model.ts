@@ -8,14 +8,34 @@
 /** MVP 聚焦：gltf 模型 + 文档类；video/audio 后置。 */
 export type FileType = 'gltf' | 'md' | 'pdf' | 'txt' | 'html' | 'image' | 'data' | 'unknown';
 
+/**
+ * gltf 等多文件资源的一个依赖项（相对根文件目录的路径）。
+ * 典型：`.gltf` 引用的 `.bin` 缓冲与纹理图片。
+ */
+export interface FileAsset {
+  /** 相对根文件目录的路径（与 gltf 内 uri 一致，已 decode）。 */
+  path: string;
+  mime?: string;
+  size?: number;
+  hash?: string;
+  /** 资源种类，便于 Host/Agent 归类。 */
+  role?: 'buffer' | 'image' | 'other';
+}
+
 /** 一个文件的引用（内容寻址）。 */
 export interface FileRef {
+  /** 逻辑标识：原始文件名或工作目录内相对路径（可持久化；非运行时 blob）。 */
   uri: string;
   mime: string;
   type: FileType;
   size?: number;
   /** 内容 hash，缓存键的一部分。 */
   hash?: string;
+  /**
+   * 多文件资源的依赖清单（如 gltf 的 .bin/纹理）。
+   * 为空或缺省表示自包含单文件（如 .glb 或内嵌 data: 的 gltf）。
+   */
+  assets?: FileAsset[];
 }
 
 /** 给人看的预览元数据（运行时回填，不入持久化 IR）。 */
