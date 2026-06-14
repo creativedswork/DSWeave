@@ -10,3 +10,10 @@ body,
   height: 100%;
   margin: 0;
 }
+
+/* 运行中的连线流动虚线 */
+@keyframes dsweave-dash {
+  to {
+    stroke-dashoffset: -10;
+  }
+}

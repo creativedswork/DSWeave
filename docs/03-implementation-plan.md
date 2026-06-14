@@ -60,25 +60,30 @@ node -v && pnpm -v
 **目标**：点 Start 跑通 ACP 链路，收到流式 update（先用 Mock Agent，验证可插拔抽象）。
 
 `packages/protocol`：
-- [ ] `transport.ts`：`AcpTransport` 接口 + `WebSocketTransport`。
-- [ ] `encode.ts`：`encodeGraphToPrompt`（含 `understanding` 字段）。
-- [ ] `decode.ts`：`session/update` → `DSWeaveEvent`。
-- [ ] `client.ts`：`DSWeaveAcpClient`（newSession/run/respondPermission/cancel）。
+- [x] `transport.ts`：`AcpTransport` 接口 + `WebSocketTransport` + 内存传输对（进程内连 Mock）。
+- [x] `jsonrpc.ts`：自包含 JSON-RPC 2.0 对等端（请求/响应 + 通知，双向）。
+- [x] `messages.ts`：ACP 形态方法/负载（`session/new|prompt|update|cancel|request_permission`）。
+- [x] `encode.ts`：`encodeGraphToPrompt`（系统指令 + 结构 + 能力 + 输出；`understanding` 预留 M3）。
+- [x] `decode.ts`：`session/update` → `DSWeaveEvent`。
+- [x] `client.ts`：`DSWeaveAcpClient`（newSession/run(异步流)/respondPermission/cancel）。
+- [x] `agent-connection.ts`：`AgentSideConnection`（onNewSession/onPrompt/sessionUpdate/requestPermission）。
 
 `packages/host`：
-- [ ] `server.ts`：ws 服务 + 会话生命周期。
-- [ ] `agent-manager.ts`：spawn/连接 Agent，stdio ACP。
-- [ ] `bridge.ts`：前端 WS ↔ Agent stdio 中继。
-- [ ] `fs-service.ts`：文件登记 + hash + 资源 uri。
+- [x] `server.ts`：ws 服务 + 会话生命周期。
+- [x] `agent-manager.ts`：连接 Agent（默认进程内 Mock；`spawnStdioConnector` 预留 stdio ACP）。
+- [x] `bridge.ts`：前端 WS ↔ Agent 透明帧中继 + 文件登记旁路观测。
+- [x] `fs-service.ts`：文件登记 + hash + 资源 uri（内存版）。
 
 `packages/agent`（Mock）：
-- [ ] 最小 `AgentSideConnection`：收到 prompt → 假的 node-status 流 → done。
+- [x] 最小 `AgentSideConnection`：收到 prompt → node/edge 状态流 + 日志 + 产物 → done；附 stdio 入口。
 
 `packages/web`：
-- [ ] `acp/` 接入 `DSWeaveAcpClient`，Start 触发 `run`，消费 `DSWeaveEvent`。
-- [ ] `ExecutionPanel` + `LogTimeline` 基础版。
+- [x] `acp/connect.ts` 接入 `DSWeaveAcpClient`，Start 触发 `run`，消费 `DSWeaveEvent`。
+- [x] `ExecutionPanel` + `LogTimeline` 基础版；节点/边执行态可视化。
 
-**验收**：点 Start → 节点依次 running→done → 日志滚动（Mock）。
+**验收**：点 Start → 节点依次 running→done → 日志滚动（Mock）。✅ `pnpm m2:smoke` 端到端通过。
+
+> 实现说明：方案原列 `@agentclientprotocol/sdk` 依赖，但该名解析到的 npm 包（v0.25.1）与社区官方 ACP 实现（`@zed-industries/agent-client-protocol` v0.4.x）严重不符且 API 不稳。M2 目标是「用 Mock 验证可插拔抽象」，故在 `protocol` 内自研一套 ACP 形态 JSON-RPC 层，方法名/语义对齐 ACP，`AcpTransport` 抽象成立；M4 接真实 Agent 时可在 stdio 边界换上官方 SDK 而不影响上层。
 
 ---
 

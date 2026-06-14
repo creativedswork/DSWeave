@@ -4,16 +4,19 @@ import type { DSNode } from '../types';
 import { isOutputData } from '../types';
 import { useDSWeaveStore } from '../store/useDSWeaveStore';
 import { VISIBLE_OUTPUT_TYPES, getOutputType } from '../lib/outputs';
+import { statusRing } from '../lib/status';
 
 export function OutputNode({ id, data, selected }: NodeProps<DSNode>) {
   const updateOutput = useDSWeaveStore((s) => s.updateOutput);
+  const status = useDSWeaveStore((s) => s.runtime[id]);
   if (!isOutputData(data)) return null;
   const def = getOutputType(data.output.typeId);
+  const ring = statusRing(status);
 
   return (
     <div
       className={`w-72 rounded-xl border bg-neutral-950/95 p-3 shadow-lg transition-colors ${
-        selected ? 'border-fuchsia-500' : 'border-fuchsia-500/40'
+        ring || (selected ? 'border-fuchsia-500' : 'border-fuchsia-500/40')
       }`}
     >
       <Handle

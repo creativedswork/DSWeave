@@ -13,7 +13,9 @@
     "typecheck": "tsc -b packages/core packages/protocol packages/agent packages/host && pnpm --filter @dsweave/web --filter @dsweave/player exec tsc --noEmit -p tsconfig.json",
     "clean": "tsc -b --clean packages/core packages/protocol packages/agent packages/host && rimraf \"packages/*/dist\" \"packages/*/.tsbuildinfo\"",
     "dev:web": "pnpm --filter @dsweave/web dev",
+    "dev:host": "pnpm --filter @dsweave/host dev",
     "dev:player": "pnpm --filter @dsweave/player dev",
+    "m2:smoke": "pnpm --filter @dsweave/host build && node packages/host/dist/smoke.js",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

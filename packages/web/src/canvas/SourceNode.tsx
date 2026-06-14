@@ -2,6 +2,8 @@ import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { DSNode } from '../types';
 import { isSourceData } from '../types';
 import { SourcePreview } from '../previews';
+import { useDSWeaveStore } from '../store/useDSWeaveStore';
+import { statusRing } from '../lib/status';
 
 const TYPE_BADGE: Record<string, string> = {
   gltf: 'bg-emerald-500/15 text-emerald-300 ring-emerald-500/30',
@@ -21,14 +23,16 @@ function formatSize(bytes?: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function SourceNode({ data, selected }: NodeProps<DSNode>) {
+export function SourceNode({ id, data, selected }: NodeProps<DSNode>) {
+  const status = useDSWeaveStore((s) => s.runtime[id]);
   if (!isSourceData(data)) return null;
   const badge = TYPE_BADGE[data.file.type] ?? TYPE_BADGE.unknown;
   const assetCount = data.file.assets?.length ?? 0;
+  const ring = statusRing(status);
   return (
     <div
       className={`w-64 rounded-xl border bg-neutral-950/95 p-2.5 shadow-lg transition-colors ${
-        selected ? 'border-sky-500' : 'border-neutral-800'
+        ring || (selected ? 'border-sky-500' : 'border-neutral-800')
       }`}
     >
       <Handle

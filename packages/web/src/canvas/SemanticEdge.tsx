@@ -19,6 +19,7 @@ export function SemanticEdge({
   selected,
 }: EdgeProps<DSEdge>) {
   const setEditingEdge = useDSWeaveStore((s) => s.setEditingEdge);
+  const status = useDSWeaveStore((s) => s.runtime[id]);
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
@@ -29,12 +30,28 @@ export function SemanticEdge({
   });
   const semantics = data?.semantics?.trim();
 
+  const stroke =
+    status === 'running'
+      ? '#38bdf8'
+      : status === 'done'
+        ? '#10b981'
+        : status === 'error'
+          ? '#f43f5e'
+          : selected
+            ? '#38bdf8'
+            : '#52525b';
+
   return (
     <>
       <BaseEdge
         id={id}
         path={edgePath}
-        style={{ stroke: selected ? '#38bdf8' : '#52525b', strokeWidth: selected ? 2 : 1.5 }}
+        style={{
+          stroke,
+          strokeWidth: status === 'running' || selected ? 2 : 1.5,
+          strokeDasharray: status === 'running' ? '6 4' : undefined,
+          animation: status === 'running' ? 'dsweave-dash 0.6s linear infinite' : undefined,
+        }}
       />
       <EdgeLabelRenderer>
         <button

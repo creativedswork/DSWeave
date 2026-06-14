@@ -20,6 +20,10 @@ export function Toolbar() {
   const newFlow = useDSWeaveStore((s) => s.newFlow);
   const exportJson = useDSWeaveStore((s) => s.exportJson);
   const loadFlowGraph = useDSWeaveStore((s) => s.loadFlowGraph);
+  const start = useDSWeaveStore((s) => s.start);
+  const cancel = useDSWeaveStore((s) => s.cancel);
+  const running = useDSWeaveStore((s) => s.running);
+  const hasNodes = useDSWeaveStore((s) => s.nodes.length > 0);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dirInputRef = useRef<HTMLInputElement>(null);
@@ -103,6 +107,26 @@ export function Toolbar() {
         <button type="button" className={btn('primary')} onClick={handleSave}>
           保存
         </button>
+        <span className="mx-1 h-5 w-px bg-neutral-800" />
+        {running ? (
+          <button
+            type="button"
+            className="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-rose-500"
+            onClick={cancel}
+          >
+            ■ Cancel
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-40"
+            onClick={() => void start()}
+            disabled={!hasNodes}
+            title={hasNodes ? '运行工作流（ACP）' : '先添加节点'}
+          >
+            ▶ Start
+          </button>
+        )}
       </div>
 
       <input

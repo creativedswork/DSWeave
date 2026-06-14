@@ -1,0 +1,141 @@
+/**
+ * Mock Agent：收到 prompt → 按图发出 node/edge 状态流 + 日志 + 产物 → done。
+ *
+ * 目的（M2）：用最小可插拔 Agent 验证 ACP 全链路与 AcpTransport 抽象，
+ * 不做真实理解/生成。真实 Agent（M4）替换本实现而前端无需改动。
+ */
+import {
+  AgentSideConnection,
+  type AcpTransport,
+  type CancelParams,
+  type NewSessionParams,
+  type NewSessionResult,
+  type PromptParams,
+  type PromptResult,
+} from '@dsweave/protocol';
+import { backingCapability } from './tools/index.js';
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+let sessionSeq = 0;
+
+/** 创建一个基于给定传输的 Mock Agent 连接。 */
+export function createMockAgent(transport: AcpTransport): AgentSideConnection {
+  const cancelled = new Set<string>();
+
+  return new AgentSideConnection(transport, {
+    onNewSession(_params: NewSessionParams): NewSessionResult {
+      return { sessionId: `mock_${++sessionSeq}` };
+    },
+    onCancel(params: CancelParams): void {
+      cancelled.add(params.sessionId);
+    },
+    onPrompt(params: PromptParams, conn: AgentSideConnection): Promise<PromptResult> {
+      return runMock(params, conn, cancelled);
+    },
+  });
+}
+
+async function runMock(
+  params: PromptParams,
+  conn: AgentSideConnection,
+  cancelled: Set<string>,
+): Promise<PromptResult> {
+  const { sessionId, prompt } = params;
+  const { graph } = prompt;
+  const isCancelled = () => cancelled.has(sessionId);
+
+  conn.sessionUpdate(sessionId, {
+    type: 'log',
+    level: 'info',
+    text: `收到工作流「${graph.name}」：${graph.nodes.length} 个节点 / ${graph.edges.length} 条连线`,
+  });
+
+  const sources = graph.nodes.filter((n) => n.kind === 'source');
+  const outputs = graph.nodes.filter((n) => n.kind === 'output');
+
+  // 1) 逐个「理解」源文件
+  for (const node of sources) {
+    if (isCancelled()) return finish(conn, sessionId, 'cancelled');
+    conn.sessionUpdate(sessionId, { type: 'node-status', nodeId: node.id, status: 'running' });
+    conn.sessionUpdate(sessionId, {
+      type: 'log',
+      level: 'info',
+      text: `理解文件：${node.label ?? node.file?.uri ?? node.id}`,
+    });
+    await sleep(280);
+    conn.sessionUpdate(sessionId, {
+      type: 'node-status',
+      nodeId: node.id,
+      status: 'done',
+      message: '已理解（mock）',
+    });
+  }
+
+  // 2) 逐条「连线」生效
+  for (const edge of graph.edges) {
+    if (isCancelled()) return finish(conn, sessionId, 'cancelled');
+    conn.sessionUpdate(sessionId, { type: 'edge-status', edgeId: edge.id, status: 'running' });
+    await sleep(150);
+    conn.sessionUpdate(sessionId, { type: 'edge-status', edgeId: edge.id, status: 'done' });
+  }
+
+  // 3) 逐个输出节点「产出」（工具卡片 + 产物）
+  for (const node of outputs) {
+    if (isCancelled()) return finish(conn, sessionId, 'cancelled');
+    const typeId = node.output?.typeId ?? 'scene.html';
+    const cap = backingCapability(typeId);
+    const toolId = `tool_${node.id}`;
+
+    conn.sessionUpdate(sessionId, { type: 'node-status', nodeId: node.id, status: 'running' });
+    conn.sessionUpdate(sessionId, {
+      type: 'tool-call',
+      id: toolId,
+      title: `${cap}（mock）`,
+      state: 'running',
+      nodeId: node.id,
+    });
+    conn.sessionUpdate(sessionId, {
+      type: 'log',
+      level: 'info',
+      text: `调用能力 ${cap} 产出 ${typeId} …`,
+    });
+    await sleep(420);
+    conn.sessionUpdate(sessionId, {
+      type: 'tool-call',
+      id: toolId,
+      title: `${cap}（mock）`,
+      state: 'done',
+      nodeId: node.id,
+    });
+    conn.sessionUpdate(sessionId, {
+      type: 'artifact',
+      uri: `mock://artifacts/${node.id}.html`,
+      mime: 'text/html',
+      fromNodeId: node.id,
+    });
+    conn.sessionUpdate(sessionId, {
+      type: 'node-status',
+      nodeId: node.id,
+      status: 'done',
+      message: '产物已生成（mock）',
+    });
+  }
+
+  return finish(conn, sessionId, 'end_turn');
+}
+
+function finish(
+  conn: AgentSideConnection,
+  sessionId: string,
+  reason: PromptResult['stopReason'],
+): PromptResult {
+  conn.sessionUpdate(sessionId, {
+    type: 'log',
+    level: reason === 'end_turn' ? 'info' : 'warn',
+    text: reason === 'end_turn' ? '完成（mock）' : `已停止：${reason}`,
+  });
+  return { stopReason: reason };
+}
