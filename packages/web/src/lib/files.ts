@@ -47,6 +47,12 @@ export function isTextType(type: FileType): boolean {
   return TEXT_TYPES.includes(type);
 }
 
+/** 供 Host 文件理解登记的原始内容（根文件 + 依赖文件）。 */
+export interface IngestPayload {
+  file: File;
+  assets: { path: string; file: File }[];
+}
+
 /** 一个待创建的 source 节点的完整数据。 */
 export interface SourceSpec {
   label: string;
@@ -59,6 +65,8 @@ export interface SourceSpec {
   objectUrls: string[];
   /** 摄入告警（如 gltf 缺失依赖）。 */
   warning?: string;
+  /** 供 Host 登记文件理解的原始内容。 */
+  ingest: IngestPayload;
 }
 
 // ---------- 来源采集：把拖放/选择转成带相对路径的文件列表 ----------
@@ -134,7 +142,14 @@ async function docSpec(item: IngestedFile): Promise<SourceSpec> {
     size: item.file.size,
   };
   const previewText = isTextType(type) ? await readPreviewText(item.file) : undefined;
-  return { label: item.file.name, file, previewUrl, previewText, objectUrls: [previewUrl] };
+  return {
+    label: item.file.name,
+    file,
+    previewUrl,
+    previewText,
+    objectUrls: [previewUrl],
+    ingest: { file: item.file, assets: [] },
+  };
 }
 
 function glbSpec(item: IngestedFile): SourceSpec {
@@ -146,7 +161,13 @@ function glbSpec(item: IngestedFile): SourceSpec {
     size: item.file.size,
     assets: [],
   };
-  return { label: item.file.name, file, previewUrl, objectUrls: [previewUrl] };
+  return {
+    label: item.file.name,
+    file,
+    previewUrl,
+    objectUrls: [previewUrl],
+    ingest: { file: item.file, assets: [] },
+  };
 }
 
 async function gltfSpec(item: IngestedFile, all: IngestedFile[]): Promise<SourceSpec> {
@@ -170,6 +191,7 @@ async function gltfSpec(item: IngestedFile, all: IngestedFile[]): Promise<Source
     previewUrl: bundle.srcUrl,
     objectUrls: bundle.objectUrls,
     warning,
+    ingest: { file: item.file, assets: bundle.assetFiles },
   };
 }
 

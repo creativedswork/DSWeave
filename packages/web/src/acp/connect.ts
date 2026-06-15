@@ -3,12 +3,24 @@
  *
  * 仅依赖 AcpTransport，未来换 Tauri IPC 时前端无需改动。
  */
-import { DSWeaveAcpClient, WebSocketTransport } from '@dsweave/protocol';
+import {
+  DSWeaveAcpClient,
+  WebSocketTransport,
+  type UnderstandingNotification,
+} from '@dsweave/protocol';
 
 const HOST_PORT = Number(import.meta.env.VITE_DSWEAVE_PORT ?? 8787);
 const CONNECT_TIMEOUT_MS = 5000;
 
 let clientPromise: Promise<DSWeaveAcpClient> | null = null;
+
+/** 文件理解流式回填的订阅者（由 store 设置，路由到状态）。 */
+let understandingSink: ((note: UnderstandingNotification) => void) | null = null;
+
+/** 设置文件理解回填的接收者。 */
+export function setUnderstandingSink(cb: (note: UnderstandingNotification) => void): void {
+  understandingSink = cb;
+}
 
 function hostUrl(): string {
   const host = typeof location !== 'undefined' ? location.hostname : 'localhost';
@@ -39,7 +51,9 @@ async function connect(): Promise<DSWeaveAcpClient> {
     clientPromise = null;
   });
 
-  return new DSWeaveAcpClient(new WebSocketTransport(ws));
+  return new DSWeaveAcpClient(new WebSocketTransport(ws), {
+    onUnderstanding: (note) => understandingSink?.(note),
+  });
 }
 
 /** 获取（必要时建立）到 Host 的客户端连接。 */

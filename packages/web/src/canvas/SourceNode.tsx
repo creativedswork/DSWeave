@@ -23,12 +23,20 @@ function formatSize(bytes?: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+const UNDERSTAND_BADGE: Record<string, { label: string; cls: string }> = {
+  pending: { label: '理解中…', cls: 'bg-sky-500/10 text-sky-300 ring-sky-500/20 animate-pulse' },
+  ready: { label: '已理解', cls: 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/20' },
+  error: { label: '未连接 Host', cls: 'bg-amber-500/10 text-amber-300 ring-amber-500/20' },
+};
+
 export function SourceNode({ id, data, selected }: NodeProps<DSNode>) {
   const status = useDSWeaveStore((s) => s.runtime[id]);
+  const understandStatus = useDSWeaveStore((s) => s.understandStatus[id]);
   if (!isSourceData(data)) return null;
   const badge = TYPE_BADGE[data.file.type] ?? TYPE_BADGE.unknown;
   const assetCount = data.file.assets?.length ?? 0;
   const ring = statusRing(status);
+  const und = understandStatus ? UNDERSTAND_BADGE[understandStatus] : undefined;
   return (
     <div
       className={`w-64 rounded-xl border bg-neutral-950/95 p-2.5 shadow-lg transition-colors ${
@@ -49,6 +57,13 @@ export function SourceNode({ id, data, selected }: NodeProps<DSNode>) {
         </span>
         <span className="text-[10px] text-neutral-600">{formatSize(data.file.size)}</span>
       </div>
+      {und && (
+        <div className="mb-1.5">
+          <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ring-1 ${und.cls}`}>
+            {und.label}
+          </span>
+        </div>
+      )}
       <SourcePreview data={data} />
       <div className="mt-1.5 flex items-center gap-2 text-[10px]">
         {assetCount > 0 && (

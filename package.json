@@ -16,6 +16,7 @@
     "dev:host": "pnpm --filter @dsweave/host dev",
     "dev:player": "pnpm --filter @dsweave/player dev",
     "m2:smoke": "pnpm --filter @dsweave/host build && node packages/host/dist/smoke.js",
+    "m3:smoke": "pnpm --filter @dsweave/host build && node packages/host/dist/m3-smoke.js",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { FlowGraph } from './model.js';
 import type { SceneSpec } from './scene-spec.js';
+import type { Understanding } from './model.js';
 
 export const zFileType = z.enum([
   'gltf',
@@ -98,6 +99,51 @@ export const zSceneSpec = z.object({
   panels: z.array(z.object({ title: z.string(), chunkIds: z.array(z.string()) })),
   citations: z.boolean(),
 });
+
+// ---------- 文件理解（Understanding）相关 ----------
+
+export const zChunk = z.object({
+  id: z.string(),
+  text: z.string(),
+  source: z.object({ nodeId: z.string(), loc: z.string().optional() }),
+  embedding: z.array(z.number()).optional(),
+});
+
+export const zModelMeta = z.object({
+  nodes: z
+    .array(z.object({ name: z.string(), meshIndex: z.number().optional() }))
+    .optional(),
+  materials: z.array(z.string()).optional(),
+  animations: z.array(z.string()).optional(),
+  bbox: z
+    .object({
+      min: z.tuple([z.number(), z.number(), z.number()]),
+      max: z.tuple([z.number(), z.number(), z.number()]),
+    })
+    .optional(),
+});
+
+export const zUnderstanding = z.object({
+  text: z.string().optional(),
+  summary: z.string().optional(),
+  chunks: z.array(zChunk).optional(),
+  outline: z.array(z.object({ level: z.number(), title: z.string() })).optional(),
+  schema: z.record(z.unknown()).optional(),
+  captions: z.array(z.string()).optional(),
+  renders: z.array(z.string()).optional(),
+  model: zModelMeta.optional(),
+  metadata: z.record(z.unknown()).optional(),
+  ready: z.boolean(),
+});
+
+/** 校验并解析一个 Understanding。 */
+export function validateUnderstanding(input: unknown): Understanding {
+  return zUnderstanding.parse(input) as Understanding;
+}
+
+export function safeValidateUnderstanding(input: unknown) {
+  return zUnderstanding.safeParse(input);
+}
 
 /** 校验并解析一个 FlowGraph（抛出 ZodError 或返回类型安全对象）。 */
 export function validateFlow(input: unknown): FlowGraph {

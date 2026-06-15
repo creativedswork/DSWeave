@@ -5,7 +5,7 @@
  * 自研层让 AcpTransport / Client / AgentSideConnection 抽象成立且零外部风险；
  * 待 M4 接真实 Agent 时，可在 stdio 边界换上官方 SDK 而不影响上层。
  */
-import type { ExecStatus, FlowGraph, OutputSpec } from '@dsweave/core';
+import type { Chunk, ExecStatus, FileRef, FlowGraph, OutputSpec, Understanding } from '@dsweave/core';
 import type { ToolCallState } from './events.js';
 
 /** ACP 方法名常量。 */
@@ -20,6 +20,13 @@ export const RPC = {
   sessionUpdate: 'session/update',
   /** Agent → Client：请求危险操作授权（请求）。 */
   requestPermission: 'session/request_permission',
+  /**
+   * Client → Host：登记一个文件并触发文件理解（Host 侧能力，不转发给 Agent）。
+   * 返回内容 hash；命中缓存时直接带回 Understanding，否则异步经 understandingUpdate 回填。
+   */
+  understandingRegister: 'understanding/register',
+  /** Host → Client：文件理解就绪后的流式回填（通知）。 */
+  understandingUpdate: 'understanding/update',
 } as const;
 
 export interface NewSessionParams {
@@ -31,11 +38,29 @@ export interface NewSessionResult {
   sessionId: string;
 }
 
+/** 单个文件经上下文工程后选取的上下文。 */
+export interface PromptContextFile {
+  nodeId: string;
+  label?: string;
+  summary?: string;
+  chunks: Chunk[];
+}
+
+/** 喂给 Agent 的上下文（ContextBuilder 产出，Host 注入）。 */
+export interface PromptContext {
+  /** 'full' = 全量喂入；'topk' = 检索式选片（规模化时）。 */
+  retrieval: 'full' | 'topk';
+  files: PromptContextFile[];
+}
+
 /** 编码后的提示输入（图 → prompt），随 session/prompt 发送。 */
 export interface PromptInput {
   /** 角色 + 能力约束（系统指令）。 */
   instructions: string;
-  /** 结构（已剥离运行时字段）。 */
+  /**
+   * 结构（已剥离运行时字段）。Host 转发前会把各 source 节点的 `understanding` 重新注入，
+   * 因此 Agent 收到的图节点带有文件理解。
+   */
   graph: FlowGraph;
   /** Host 声明的可用能力清单。 */
   capabilities: string[];
@@ -43,6 +68,8 @@ export interface PromptInput {
   workingDir: string;
   /** 输出目标（受限类型 + 软细节）。 */
   outputs: OutputSpec[];
+  /** 上下文工程产出（Host 注入；M3 起）。 */
+  context?: PromptContext;
 }
 
 export interface PromptParams {
@@ -86,4 +113,42 @@ export interface RequestPermissionParams {
 export interface RequestPermissionResult {
   /** 选中的选项序号；null 表示取消/拒绝。 */
   optionIndex: number | null;
+}
+
+// ---------- 文件理解（Host 侧能力） ----------
+
+/** 一个待登记文件的内容（base64）。 */
+export interface FileContent {
+  /** 相对根文件目录的路径（与 FileRef.assets[].path / gltf 内 uri 对齐）。 */
+  path: string;
+  /** base64 编码的字节。 */
+  content: string;
+}
+
+/** understanding/register 入参：登记文件 + 内容，触发文件理解。 */
+export interface RegisterFileParams {
+  /** 关联的画布节点 id（Host 据此回填 understanding）。 */
+  nodeId: string;
+  ref: FileRef;
+  /** base64 编码的根文件内容。 */
+  content: string;
+  /** 多文件资源（gltf 的 .bin/纹理）的依赖内容。 */
+  assets?: FileContent[];
+}
+
+/** understanding/register 返回：内容 hash；命中缓存时直接带回结果。 */
+export interface RegisterFileResult {
+  nodeId: string;
+  /** 内容寻址 hash（sha256）。 */
+  hash: string;
+  /** 是否命中缓存（命中即同步带回 understanding）。 */
+  cached: boolean;
+  understanding?: Understanding;
+}
+
+/** understanding/update 通知：文件理解就绪后的流式回填。 */
+export interface UnderstandingNotification {
+  nodeId: string;
+  hash: string;
+  understanding: Understanding;
 }

@@ -50,6 +50,8 @@ export interface GltfBundle {
   srcUrl: string;
   /** 依赖清单（持久化用，路径为相对根文件目录）。 */
   assets: FileAsset[];
+  /** 依赖文件（相对路径 + File），供 Host 文件理解登记。 */
+  assetFiles: { path: string; file: File }[];
   /** 运行时创建的所有 blob URL（含 src 与各依赖），用于回收。 */
   objectUrls: string[];
   /** 未能在文件集合中找到的依赖 uri（用于提示）。 */
@@ -80,6 +82,7 @@ export async function buildGltfBundle(
 
   const objectUrls: string[] = [];
   const assets: FileAsset[] = [];
+  const assetFiles: { path: string; file: File }[] = [];
   const missing: string[] = [];
   let assetBytes = 0;
 
@@ -104,6 +107,7 @@ export async function buildGltfBundle(
       size: match.file.size,
       role: ref.role,
     });
+    assetFiles.push({ path: decoded, file: match.file });
   }
 
   rewriteGltfUris(gltf, uriToBlob);
@@ -112,7 +116,7 @@ export async function buildGltfBundle(
   const srcUrl = URL.createObjectURL(patched);
   objectUrls.push(srcUrl);
 
-  return { srcUrl, assets, objectUrls, missing, assetBytes };
+  return { srcUrl, assets, assetFiles, objectUrls, missing, assetBytes };
 }
 
 function rewriteGltfUris(gltf: Record<string, unknown>, map: Map<string, string>): void {

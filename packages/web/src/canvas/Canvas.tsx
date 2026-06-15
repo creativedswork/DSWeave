@@ -28,6 +28,7 @@ export function Canvas() {
   const onConnect = useDSWeaveStore((s) => s.onConnect);
   const addIngested = useDSWeaveStore((s) => s.addIngested);
   const setEditingEdge = useDSWeaveStore((s) => s.setEditingEdge);
+  const setSelectedNode = useDSWeaveStore((s) => s.setSelectedNode);
 
   const [dragOver, setDragOver] = useState(false);
 
@@ -65,7 +66,11 @@ export function Canvas() {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onEdgeClick={(_, edge) => setEditingEdge(edge.id)}
-        onPaneClick={() => setEditingEdge(null)}
+        onNodeClick={(_, node) => setSelectedNode(node.id)}
+        onPaneClick={() => {
+          setEditingEdge(null);
+          setSelectedNode(null);
+        }}
         fitView
         proOptions={{ hideAttribution: true }}
         defaultEdgeOptions={{ type: 'semantic' }}

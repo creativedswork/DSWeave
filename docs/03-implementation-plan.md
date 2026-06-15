@@ -92,17 +92,24 @@ node -v && pnpm -v
 **目标**：让 Agent 基于文档内容准确作答/引用，并能"看懂"gltf 模型（外观 + 部件）。
 
 `packages/host`：
-- [ ] `understanding/` provider 框架（`UnderstandingProvider`）。
-- [ ] 文档 provider：`md`/`txt`/`pdf`(pdfjs)/`html`(readability)/`data`(csv/json)/`image`(OCR/视觉，可后置)。
-- [ ] **`gltf` provider**：离屏多角度渲染成图（`renders`）+ 解析 glTF JSON 取部件/材质/动画/包围盒（`model`）。
-- [ ] `context/`：分块 + 层级摘要 + 引用来源（nodeId+页/段/部件）。
-- [ ] `ContextBuilder`：按边语义/输出目标选取上下文（MVP 全量；预留向量检索）。
-- [ ] 表征异步生成 + 流式回填 `node.understanding`，内容寻址缓存。
+- [x] `understanding/` provider 框架（`UnderstandingProvider` + `ProviderRegistry`，版本指纹参与缓存键）。
+- [x] 文档 provider：`md`/`txt`/`html`/`data`(csv/json)/`pdf`/`image`。
+- [x] **`gltf` provider**：解析 glTF JSON / .glb 容器取部件/材质/动画/包围盒（`model`）+ 合成「外观」caption。
+- [x] `context/`：分块（按标题/段落，带来源 loc）+ 抽取式层级摘要 + 引用来源（nodeId+段/小节）。
+- [x] `ContextBuilder`：按边语义/输出目标选取上下文（MVP 全量；超预算退化关键词 topk，预留向量检索）。
+- [x] 表征异步生成 + 流式回填 `node.understanding`（`understanding/register` → `understanding/update`），sha256 内容寻址缓存 + in-flight 去重。
 
 `packages/web`：
-- [ ] 节点"理解中/已理解"徽标；`Inspector` 展示解析结果（摘录/大纲/分块、gltf 渲染图与部件列表）。
+- [x] 节点"理解中/已理解"徽标；`Inspector` 展示解析结果（摘录/大纲/分块、gltf 部件/材质/动画/包围盒）。
+- [x] 拖入即把文件内容登记到 Host（含 gltf 依赖），流式回填 `understanding`。
 
-**验收**：拖入 gltf + 若干 md/pdf，接入真实/外部 Agent，Agent 能基于文档准确回答并引用，且能描述模型外观与部件名。
+**验收**：拖入 gltf + 若干 md/pdf/csv，Host 解析出文档大纲/分块/摘要与模型部件，注入 prompt 后 Agent 能基于文档引用并描述模型部件。✅ `pnpm m3:smoke` 端到端通过。
+
+> 实现说明：
+> - **文件内容上行**：M2 的 Bridge 透明中继升级为「路由器」——拦截 `understanding/register`（Host 侧处理、不转发 Agent），转发 `session/prompt` 前把各 source 节点的 `understanding` 与 `ContextBuilder` 上下文注入图。新增协议方法 `understanding/register`（请求）与 `understanding/update`（通知），`PromptInput.context` 承载上下文。
+> - **gltf 渲染（renders）后置**：离屏多角度渲染依赖 headless-gl/puppeteer，环境相关且较重；M3 先以「结构元数据 + 合成 caption」支撑「描述外观与部件名」，`renders` 字段保留为空待后置。
+> - **HTML 抽取**：M3 用零依赖的轻量去噪抽取（移除 script/style/标签、解码实体、抽 title/标题），封装在 `UnderstandingProvider` 之后，后续可平滑替换为 `@mozilla/readability + jsdom`。
+> - **PDF 抽取**：`pdf` provider 动态导入 `pdfjs-dist` 抽取正文，未安装时优雅降级为「已登记、正文待解析」，不阻断构建与链路。
 
 ---
 

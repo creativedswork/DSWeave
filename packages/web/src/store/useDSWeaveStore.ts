@@ -16,13 +16,19 @@ import {
   type FlowNode,
   type FlowEdge,
   type OutputSpec,
+  type Understanding,
 } from '@dsweave/core';
-import type { DSWeaveAcpClient, DSWeaveEvent, ToolCallState } from '@dsweave/protocol';
+import type {
+  DSWeaveAcpClient,
+  DSWeaveEvent,
+  ToolCallState,
+  UnderstandingNotification,
+} from '@dsweave/protocol';
 import type { DSNode, DSEdge, DSNodeData, SemanticEdgeData } from '../types';
 import { isOutputData, isSourceData } from '../types';
-import { ingestFiles } from '../lib/files';
+import { ingestFiles, type SourceSpec } from '../lib/files';
 import type { IngestedFile } from '../lib/gltf';
-import { getClient } from '../acp/connect';
+import { getClient, setUnderstandingSink } from '../acp/connect';
 
 /** Host 能力清单（前端镜像，约束与展示用）。 */
 const CAPABILITIES = ['scene.html', 'report.html', 'gltf.render', 'fs.write'];
@@ -72,6 +78,47 @@ function uid(prefix: string): string {
   return `${prefix}_${rand}`;
 }
 
+/** 文件理解状态。 */
+export type UnderstandStatus = 'pending' | 'ready' | 'error';
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  return bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+}
+
+/** 把新建的 source 节点登记到 Host，触发异步文件理解。Host 未启动则静默跳过。 */
+async function registerSources(
+  set: SetState,
+  client: DSWeaveAcpClient,
+  created: { id: string; spec: SourceSpec }[],
+): Promise<void> {
+  for (const { id, spec } of created) {
+    try {
+      const content = await fileToBase64(spec.ingest.file);
+      const assets = await Promise.all(
+        spec.ingest.assets.map(async (a) => ({ path: a.path, content: await fileToBase64(a.file) })),
+      );
+      const res = await client.registerFile({ nodeId: id, ref: spec.file, content, assets });
+      if (res.cached && res.understanding) {
+        set((s) => ({
+          understanding: { ...s.understanding, [id]: res.understanding as Understanding },
+          understandStatus: { ...s.understandStatus, [id]: 'ready' },
+        }));
+      }
+    } catch {
+      set((s) => ({ understandStatus: { ...s.understandStatus, [id]: 'error' } }));
+    }
+  }
+}
+
 interface DSWeaveState {
   flowId: string;
   flowName: string;
@@ -79,6 +126,14 @@ interface DSWeaveState {
   edges: DSEdge[];
   /** 当前选中用于编辑的边 id（驱动 EdgeEditor）。 */
   editingEdgeId: string | null;
+  /** 当前选中的节点 id（驱动 Inspector）。 */
+  selectedNodeId: string | null;
+
+  // ---- 文件理解（Host 流式回填）----
+  /** nodeId → 文件理解结果。 */
+  understanding: Record<string, Understanding>;
+  /** nodeId → 理解状态。 */
+  understandStatus: Record<string, UnderstandStatus>;
 
   // ---- 运行时态（执行 ACP 时回填）----
   running: boolean;
@@ -101,6 +156,8 @@ interface DSWeaveState {
   updateEdgeData: (id: string, patch: Partial<SemanticEdgeData>) => void;
   removeEdge: (id: string) => void;
   setEditingEdge: (id: string | null) => void;
+  setSelectedNode: (id: string | null) => void;
+  applyUnderstanding: (note: UnderstandingNotification) => void;
 
   newFlow: () => void;
   toFlowGraph: () => FlowGraph;
@@ -121,6 +178,10 @@ export const useDSWeaveStore = create<DSWeaveState>((set, get) => ({
   nodes: [],
   edges: [],
   editingEdgeId: null,
+  selectedNodeId: null,
+
+  understanding: {},
+  understandStatus: {},
 
   running: false,
   runtime: {},
@@ -155,12 +216,15 @@ export const useDSWeaveStore = create<DSWeaveState>((set, get) => ({
   addIngested: async (items, at) => {
     const specs = await ingestFiles(items);
     const warnings: string[] = [];
+    const created: { id: string; spec: SourceSpec }[] = [];
     set((s) => {
       const newNodes: DSNode[] = specs.map((spec, i) => {
         trackUrls(spec.objectUrls);
         if (spec.warning) warnings.push(`${spec.label}：${spec.warning}`);
+        const id = uid('node');
+        created.push({ id, spec });
         return {
-          id: uid('node'),
+          id,
           type: 'source',
           position: { x: at.x + i * STAGGER, y: at.y + i * STAGGER },
           data: {
@@ -173,8 +237,23 @@ export const useDSWeaveStore = create<DSWeaveState>((set, get) => ({
           },
         };
       });
-      return { nodes: [...s.nodes, ...newNodes] };
+      // 进入“理解中”态。
+      const understandStatus = { ...s.understandStatus };
+      for (const c of created) understandStatus[c.id] = 'pending';
+      return { nodes: [...s.nodes, ...newNodes], understandStatus };
     });
+
+    // 异步登记到 Host 触发文件理解；Host 未启动则静默标记为 error（不打断摄入）。
+    getClient()
+      .then((client) => registerSources(set, client, created))
+      .catch(() => {
+        set((s) => {
+          const understandStatus = { ...s.understandStatus };
+          for (const c of created) understandStatus[c.id] = 'error';
+          return { understandStatus };
+        });
+      });
+
     return { warnings };
   },
 
@@ -222,6 +301,14 @@ export const useDSWeaveStore = create<DSWeaveState>((set, get) => ({
 
   setEditingEdge: (id) => set({ editingEdgeId: id }),
 
+  setSelectedNode: (id) => set({ selectedNodeId: id }),
+
+  applyUnderstanding: (note) =>
+    set((s) => ({
+      understanding: { ...s.understanding, [note.nodeId]: note.understanding },
+      understandStatus: { ...s.understandStatus, [note.nodeId]: 'ready' },
+    })),
+
   newFlow: () => {
     revokeAllUrls();
     set({
@@ -230,6 +317,9 @@ export const useDSWeaveStore = create<DSWeaveState>((set, get) => ({
       nodes: [],
       edges: [],
       editingEdgeId: null,
+      selectedNodeId: null,
+      understanding: {},
+      understandStatus: {},
       runtime: {},
       logs: [],
       toolCalls: [],
@@ -314,6 +404,9 @@ export const useDSWeaveStore = create<DSWeaveState>((set, get) => ({
       nodes,
       edges,
       editingEdgeId: null,
+      selectedNodeId: null,
+      understanding: {},
+      understandStatus: {},
       runtime: {},
       logs: [],
       toolCalls: [],
@@ -422,6 +515,9 @@ function applyEvent(set: SetState, client: DSWeaveAcpClient, ev: DSWeaveEvent): 
       break;
   }
 }
+
+// 把 Host 的文件理解流式回填路由进 store。
+setUnderstandingSink((note) => useDSWeaveStore.getState().applyUnderstanding(note));
 
 /** 解析 .flow.json 文本（带校验）。 */
 export function parseFlowJson(text: string): FlowGraph {

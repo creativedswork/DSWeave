@@ -47,7 +47,15 @@ export function createHost(options: HostOptions): Host {
 export { startServer } from './server.js';
 export { AgentManager, inProcessMockConnector, spawnStdioConnector } from './agent-manager.js';
 export { bridge } from './bridge.js';
-export { FsService } from './fs-service.js';
+export { FsService, contentHash } from './fs-service.js';
+export type { StoredFile } from './fs-service.js';
 export { NodeWsTransport } from './ws-transport.js';
+export { UnderstandingService } from './understanding-service.js';
+export {
+  ProviderRegistry,
+  createDefaultRegistry,
+} from './understanding/index.js';
+export type { UnderstandingProvider, UnderstandIO } from './understanding/index.js';
+export { chunkText, summarizeChunks, buildContext } from './context/index.js';
 export type { AgentConnector, AgentEndpoint } from './agent-manager.js';
 export type { RunningServer, ServerOptions } from './server.js';

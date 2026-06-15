@@ -19,9 +19,12 @@ import {
   RPC,
   type NewSessionResult,
   type PromptResult,
+  type RegisterFileParams,
+  type RegisterFileResult,
   type RequestPermissionParams,
   type RequestPermissionResult,
   type SessionUpdateNotification,
+  type UnderstandingNotification,
 } from './messages.js';
 
 export interface DSWeaveAcpClientOptions {
@@ -30,6 +33,8 @@ export interface DSWeaveAcpClientOptions {
    * 不提供则默认拒绝（安全优先）。
    */
   onPermission?: (req: { requestId: string; summary: string; options: string[] }) => void;
+  /** 收到 Host 文件理解流式回填时的回调。 */
+  onUnderstanding?: (note: UnderstandingNotification) => void;
 }
 
 export class DSWeaveAcpClient {
@@ -89,6 +94,15 @@ export class DSWeaveAcpClient {
     return queue;
   }
 
+  /**
+   * 登记一个文件并触发 Host 侧文件理解。
+   * 命中缓存时结果同步返回；否则经 onUnderstanding 异步回填。
+   * 该请求由 Host 直接处理，不转发给 Agent。
+   */
+  registerFile(params: RegisterFileParams): Promise<RegisterFileResult> {
+    return this.peer.request<RegisterFileResult>(RPC.understandingRegister, params);
+  }
+
   /** 回应一个授权请求。 */
   respondPermission(requestId: string, allow: boolean): void {
     const resolve = this.pendingPermissions.get(requestId);
@@ -108,6 +122,10 @@ export class DSWeaveAcpClient {
   }
 
   private handleNotify(method: string, params: unknown): void {
+    if (method === RPC.understandingUpdate) {
+      this.options.onUnderstanding?.(params as UnderstandingNotification);
+      return;
+    }
     if (method !== RPC.sessionUpdate) return;
     const note = params as SessionUpdateNotification;
     if (!note?.update) return;

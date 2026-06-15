@@ -4,7 +4,7 @@
 import { WebSocketServer, type WebSocket } from 'ws';
 import { AgentManager, type AgentConnector } from './agent-manager.js';
 import { bridge, type BridgeHandle } from './bridge.js';
-import { FsService } from './fs-service.js';
+import { UnderstandingService } from './understanding-service.js';
 import { NodeWsTransport } from './ws-transport.js';
 
 export interface ServerOptions {
@@ -24,7 +24,8 @@ export function startServer(options: ServerOptions): Promise<RunningServer> {
   const { port, verbose = true } = options;
   const wss = new WebSocketServer({ port });
   const manager = new AgentManager(options.agentConnector);
-  const fs = new FsService();
+  // 跨连接共享文件理解服务，使内容寻址缓存得以复用。
+  const understanding = new UnderstandingService();
   let connSeq = 0;
 
   wss.on('connection', (ws: WebSocket) => {
@@ -32,7 +33,7 @@ export function startServer(options: ServerOptions): Promise<RunningServer> {
     const clientTransport = new NodeWsTransport(ws);
     const agent = manager.connect();
     const handle: BridgeHandle = bridge(clientTransport, agent.transport, {
-      fs,
+      understanding,
       onFrame: verbose
         ? (dir, msg) => {
             const method = (msg as { method?: string })?.method;

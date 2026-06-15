@@ -30,6 +30,7 @@ pnpm dev:host      # 启动 Host（ACP WS 服务 + 进程内 Mock Agent，默认
 pnpm dev:web       # 启动前端编辑器
 pnpm dev:player    # 启动 Scene Player（开发用）
 pnpm m2:smoke      # M2 端到端冒烟：Client → ws → Host → Mock Agent
+pnpm m3:smoke      # M3 端到端冒烟：文件理解 + 上下文工程 + 缓存 + Agent 引用/描述
 ```
 
 要求：Node ≥ 20，pnpm ≥ 9。
