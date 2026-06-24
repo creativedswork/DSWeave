@@ -13,6 +13,7 @@ export function ExecutionPanel() {
   const toolCalls = useDSWeaveStore((s) => s.toolCalls);
   const artifacts = useDSWeaveStore((s) => s.artifacts);
   const running = useDSWeaveStore((s) => s.running);
+  const viewArtifact = useDSWeaveStore((s) => s.viewArtifact);
 
   const rows = nodes.map((n) => {
     const status: ExecStatus = runtime[n.id] ?? 'idle';
@@ -91,7 +92,16 @@ export function ExecutionPanel() {
                   <p className="truncate text-[11px] text-emerald-200" title={a.uri}>
                     {a.uri}
                   </p>
-                  <p className="text-[10px] text-neutral-500">{a.mime}</p>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-neutral-500">{a.mime}</span>
+                    <button
+                      type="button"
+                      onClick={() => viewArtifact(a.uri)}
+                      className="text-[10px] text-sky-300 hover:text-sky-200"
+                    >
+                      预览 →
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>

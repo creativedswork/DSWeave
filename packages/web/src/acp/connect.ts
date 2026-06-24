@@ -22,9 +22,18 @@ export function setUnderstandingSink(cb: (note: UnderstandingNotification) => vo
   understandingSink = cb;
 }
 
+function hostName(): string {
+  return typeof location !== 'undefined' ? location.hostname : 'localhost';
+}
+
 function hostUrl(): string {
-  const host = typeof location !== 'undefined' ? location.hostname : 'localhost';
-  return `ws://${host}:${HOST_PORT}`;
+  return `ws://${hostName()}:${HOST_PORT}`;
+}
+
+/** 把 Host 返回的相对产物 uri（/_artifacts/...）解析为可访问的 http URL。 */
+export function artifactUrl(uri: string): string {
+  if (/^https?:\/\//.test(uri)) return uri;
+  return `http://${hostName()}:${HOST_PORT}${uri}`;
 }
 
 async function connect(): Promise<DSWeaveAcpClient> {

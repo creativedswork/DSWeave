@@ -51,6 +51,9 @@ importers:
 
   packages/host:
     dependencies:
+      '@agentclientprotocol/sdk':
+        specifier: ^0.29.0
+        version: 0.29.0(zod@3.25.76)
       '@dsweave/agent':
         specifier: workspace:*
         version: link:../agent
@@ -176,6 +179,11 @@ importers:
         version: 5.4.21(@types/node@22.19.21)(lightningcss@1.32.0)
 
 packages:
+
+  '@agentclientprotocol/sdk@0.29.0':
+    resolution: {integrity: sha512-Sb8xJ/cIhqlvxeJiB0+1scBk0LAkVAwJ9WAFG9XCe3LEI5JWAyOxbqaCa8O1HmNnrk4+qHN11eaKH6zL2iHIYA==}
+    peerDependencies:
+      zod: ^3.25.0 || ^4.0.0
 
   '@babel/code-frame@7.29.7':
     resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==}
@@ -2356,6 +2364,10 @@ packages:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
 snapshots:
+
+  '@agentclientprotocol/sdk@0.29.0(zod@3.25.76)':
+    dependencies:
+      zod: 3.25.76
 
   '@babel/code-frame@7.29.7':
     dependencies:

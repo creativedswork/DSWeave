@@ -9,6 +9,8 @@ import { JsonRpcPeer } from './jsonrpc.js';
 import {
   RPC,
   type CancelParams,
+  type CapabilityInvokeParams,
+  type CapabilityInvokeResult,
   type NewSessionParams,
   type NewSessionResult,
   type PromptParams,
@@ -58,6 +60,14 @@ export class AgentSideConnection {
       options,
     });
     return res.optionIndex != null;
+  }
+
+  /**
+   * 调用一项 Host 能力产出产物（capability/invoke）。
+   * 该请求由 Host 的 Bridge 就地处理（不转发前端），返回产出物与缓存标识。
+   */
+  invokeCapability(params: CapabilityInvokeParams): Promise<CapabilityInvokeResult> {
+    return this.peer.request<CapabilityInvokeResult>(RPC.capabilityInvoke, params);
   }
 
   close(): void {

@@ -8,6 +8,7 @@
 import type { Understanding } from '@dsweave/core';
 import type { RegisterFileParams, RegisterFileResult, UnderstandingNotification } from '@dsweave/protocol';
 import { FsService, type StoredFile } from './fs-service.js';
+import type { ChunkInfo } from './capabilities/scene-html.js';
 import type { ProviderRegistry, UnderstandIO } from './understanding/registry.js';
 import { createDefaultRegistry } from './understanding/index.js';
 import { chunkText } from './context/chunker.js';
@@ -39,6 +40,8 @@ export class UnderstandingService {
   private readonly inFlight = new Map<string, Promise<Understanding>>();
   /** nodeId → 已就绪的理解（供 prompt 注入）。 */
   private readonly byNode = new Map<string, Understanding>();
+  /** nodeId → 已登记的文件字节（供能力解析资产，如 scene.html 注入 gltf）。 */
+  private readonly storedByNode = new Map<string, StoredFile>();
 
   constructor(registry: ProviderRegistry = createDefaultRegistry(), fs: FsService = new FsService()) {
     this.registry = registry;
@@ -50,9 +53,26 @@ export class UnderstandingService {
     return this.byNode.get(nodeId);
   }
 
+  /** 能力用：取某节点已登记的文件字节（含 gltf 依赖资源）。 */
+  getStoredFile(nodeId: string): StoredFile | undefined {
+    return this.storedByNode.get(nodeId);
+  }
+
   /** 当前所有已就绪的 nodeId → 理解 的快照。 */
   snapshot(): Map<string, Understanding> {
     return new Map(this.byNode);
+  }
+
+  /** 全量 chunkId → 片段索引（供 scene.html 把热点/面板的 chunkIds 解析为文本+来源）。 */
+  chunkIndex(): Record<string, ChunkInfo> {
+    const index: Record<string, ChunkInfo> = {};
+    for (const [nodeId, u] of this.byNode) {
+      const label = this.storedByNode.get(nodeId)?.ref.uri;
+      for (const c of u.chunks ?? []) {
+        index[c.id] = { text: c.text, loc: c.source.loc, nodeId, label };
+      }
+    }
+    return index;
   }
 
   /**
@@ -63,6 +83,7 @@ export class UnderstandingService {
     const bytes = decodeBase64(params.content);
     const assets = (params.assets ?? []).map((a) => ({ path: a.path, bytes: decodeBase64(a.content) }));
     const stored = this.fs.store(ref, bytes, assets);
+    this.storedByNode.set(nodeId, stored);
     const hash = stored.ref.hash as string;
 
     const provider = this.registry.get(ref.type);

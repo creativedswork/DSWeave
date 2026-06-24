@@ -88,6 +88,18 @@ export const zSceneSpec = z.object({
       autoRotate: z.boolean().optional(),
     }),
   ),
+  images: z
+    .array(
+      z.object({
+        nodeId: z.string(),
+        assetRef: z.string(),
+        placement: zTransform.optional(),
+        width: z.number().optional(),
+        label: z.string().optional(),
+      }),
+    )
+    .optional()
+    .default([]),
   hotspots: z.array(
     z.object({
       modelNodeId: z.string(),
@@ -97,6 +109,17 @@ export const zSceneSpec = z.object({
     }),
   ),
   panels: z.array(z.object({ title: z.string(), chunkIds: z.array(z.string()) })),
+  connectors: z
+    .array(
+      z.object({
+        fromNodeId: z.string(),
+        toNodeId: z.string(),
+        label: z.string().optional(),
+        style: z.enum(['arrow', 'line']).optional(),
+      }),
+    )
+    .optional()
+    .default([]),
   citations: z.boolean(),
 });
 

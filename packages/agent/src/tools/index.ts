@@ -11,8 +11,11 @@ const OUTPUT_TO_CAPABILITY: Record<string, string> = {
   custom: 'custom.bestEffort',
 };
 
-/** 输出类型 → 背后能力名（与 Host 能力注册表对齐，M4 落地）。 */
+/** 输出类型 → 背后能力名（与 Host 能力注册表对齐）。 */
 export function backingCapability(outputTypeId: string | undefined): string {
   if (!outputTypeId) return 'scene.html';
   return OUTPUT_TO_CAPABILITY[outputTypeId] ?? 'custom.bestEffort';
 }
+
+/** 别名：输出类型 → 背后能力 id（语义同 backingCapability）。 */
+export const capabilityForOutput = backingCapability;

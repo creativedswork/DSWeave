@@ -14,7 +14,7 @@
 | 02 | [技术设计](./02-technical-design.md) | 节点图/IR、文件理解(文档+gltf)、scene.html 生成、输出注册表、协议 | 工程实现 |
 | 03 | [实施计划](./03-implementation-plan.md) | 里程碑任务、逐包逐文件、依赖、验收 | 执行落地 |
 | 04 | [Scene Player](./04-player.md) | R3F 运行时：SceneSpec 契约、注入机制、组件架构、布局/热点/主题、单文件打包 | 前端/3D |
-| 05 | [Agent 接入（dscode）](./05-agent-integration.md) | M4b 真实 Agent：dscode headless `AcpBackend`、不走 MCP、模型/cwd、ACP 映射、分阶段落地 | Agent/后端 |
+| 05 | [Agent 接入](./05-agent-integration.md) | M4 接 Claude Code（`claude-agent-acp`，官方 ACP/stdio）；M6 内置 dscode（headless `AcpBackend`，不走 MCP） | Agent/后端 |
 
 ## 一图速览
 

@@ -118,40 +118,49 @@ node -v && pnpm -v
 > 已确认的**首条主竖切用例**。运行时＝数据驱动的自研 R3F Player；Agent 只产出 SceneSpec；交付自包含单文件 HTML。
 >
 > **分两阶段（一条龙、分步可验，详见 [05-agent-integration.md](./05-agent-integration.md)）**：
-> - **M4a**（本仓、确定性、无 LLM）：Player 渲染 + `scene.html` 注入 + **启发式 SceneSpec agent** 走现有 ACP 链路跑通竖切。
-> - **M4b**（跨两仓）：给自有的 **dscode** 加 headless `AcpBackend`（**不走 MCP**），把 spawn 目标从启发式换成 `dscode --acp`，接 DeepSeek 真实 Agent。模型/cwd 用 dscode 现成机制；真模型实跑需 `DEEPSEEK_API_KEY`。
+> - **M4a**（本仓、确定性、无 LLM）：Player 渲染 + `scene.html` 注入 + **启发式 SceneSpec agent** 走现有内部链路跑通竖切。
+> - **M4b**（接真实 Agent）：通过 [`@agentclientprotocol/claude-agent-acp`](https://github.com/agentclientprotocol/claude-agent-acp) 接入 **Claude Code**（官方 ACP/stdio）。Host 在 stdio 边界采用官方 `@agentclientprotocol/sdk`，bridge 做「内部协议 ↔ 官方 ACP」翻译；Claude 把 `scene.spec.json` 写到 workspace，Host 校验后注入 Player。真模型实跑需 `ANTHROPIC_API_KEY`。
+> - **dscode 内置 agent 推迟到 M6**（见下）。
 
 `packages/core`：
-- [ ] `SceneSpec` 类型 + zod schema（Agent 产出物的契约）。
+- [x] `SceneSpec` 类型 + zod schema（Agent 产出物的契约）。
+- [x] `Artifact` 类型（产物契约：uri/mime/hash/singleFile/bytes）。
 
 `packages/player`（自研 R3F 运行时，**本里程碑重点**）：
-- [ ] R3F 场景骨架：相机/光照/OrbitControls、gltf 加载（drei `useGLTF`/model-viewer）。
-- [ ] 热点系统：按 `SceneSpec.hotspots` 把文档片段绑到模型部件，点击弹解说。
-- [ ] 文档面板/浮窗、配色主题、引用回指。
-- [ ] `single-focus` 与 `gallery` 两种 `layout`。
-- [ ] 以 `SceneSpec`(+资产) 为唯一输入；vite 构建为可内联的 bundle；单文件导出验证。
+- [x] R3F 场景骨架：相机/光照/OrbitControls、gltf 加载（`GLTFLoader` + `LoadingManager` 从注入 data URI 解析依赖）。
+- [x] 热点系统：按 `SceneSpec.hotspots` 把文档片段绑到模型部件（`getObjectByName` 取锚点），点击弹解说浮层。
+- [x] 文档面板/浮窗、配色主题（`dark-tech`/`light`/`warm`）、引用回指（来源 nodeId+loc）。
+- [x] `single-focus` 与 `gallery` 两种 `layout`。
+- [x] 以 `SceneSpec`(+资产+片段) 为唯一输入（`window.__DSWEAVE_*__`）；vite-singlefile 内联 bundle；单文件导出验证（m4:smoke）。
 
 `packages/host`：
-- [ ] 输出类型注册表 `OutputType` + 能力注册表对齐（输出菜单从能力派生）。
-- [ ] **`scene.html` 能力**：把 `SceneSpec + 资产` 注入**预构建 Player bundle** → 导出自包含单文件 HTML（Player JS 内联、SceneSpec 内联、glb base64）。2D 模式即 `report.html`。
-- [ ] `gltf.render`、`fs.write` 能力；缓存命中标识（key 含 Player 版本）。
-- [ ] **产物处理与交付**（详见技术设计 §5.4）：`Artifact`(core) 类型；内容寻址落盘 `.dsweave/artifacts/<hash>/`；单文件直接交付，多文件 dist 起本地静态服务 `/_artifacts/<hash>/` 预览 + zip 下载；产物可「提升」为新 source 节点（复用 `FileRef.assets`）。
+- [x] 输出类型注册表 `OutputType` + 能力注册表对齐（`capabilityForOutput`；输出菜单从能力派生）。
+- [x] **`scene.html` 能力**：把 `SceneSpec + 资产` 注入**预构建 Player bundle** → 导出自包含单文件 HTML（Player JS 内联、SceneSpec 内联、gltf base64 data URI）。`report.html` 复用同能力。
+- [x] 缓存命中标识（产物内容 hash 命名目录，key 隐含 Player 版本——模板内联其中）；`gltf.render`/`fs.write` 独立能力延后（scene.html 已内联资产并自行落盘）。
+- [x] **产物处理与交付**：`Artifact`(core) 类型；内容寻址落盘 `.dsweave/artifacts/<hash>/`；单文件直接交付，HTTP 静态服务 `/_artifacts/<hash>/` 预览；产物可「提升」为新 source 节点。多文件 dist + zip 延后。
 
 `packages/agent`（M4a：启发式可插拔）：
-- [ ] 启发式 SceneSpec 生成器：基于 graph + understanding 直接产出合法 `SceneSpec`（无 LLM），约束**只产出 SceneSpec**，不写代码。
-- [ ] 执行循环 + SceneSpec 校验/重试 + `request_permission`。
+- [x] 启发式 SceneSpec 生成器：基于 graph + understanding 直接产出合法 `SceneSpec`（无 LLM），约束**只产出 SceneSpec**，不写代码。
+- [x] 执行循环 + SceneSpec 校验/重试 + `request_permission` + `capability/invoke`。
 
-**M4b：接 dscode 真实 Agent**（详见 [05-agent-integration.md](./05-agent-integration.md)）：
-- [ ] dscode 加 headless `AcpBackend`（实现其 `UiBackend` 接缝）+ `set_scene` builtin driver（非 MCP）+ `--acp` 入口。
-- [ ] 本仓：`spawnStdioConnector` 指向 `dscode --acp --cwd <workspace>`；prompt 组装；`SessionUpdate` 增 `{type:'scene'}` 变体。
-- [ ] 验证 Mock ↔ dscode 切换前端零改动；真模型实跑（需 `DEEPSEEK_API_KEY`）。
+**M4b：接 Claude Code（`claude-agent-acp`）**（详见 [05-agent-integration.md](./05-agent-integration.md)）：
+- [ ] `packages/host` 新增官方 `@agentclientprotocol/sdk` 作为 stdio 边界 ACP client。
+- [ ] `agent-manager.ts`：`spawnStdioConnector` 指向 `npx -y @agentclientprotocol/claude-agent-acp`，透传 `ANTHROPIC_API_KEY` 与 `workingDir`。
+- [ ] `bridge.ts`：内部协议 ↔ 官方 ACP 翻译（prompt / update / permission 映射）。
+- [ ] SceneSpec 收口：系统指令约束「只写 `scene.spec.json`、不写代码」；turn 结束读取 + 校验 + 注入 Player；校验失败回灌重试。
+- [ ] 验证 Mock ↔ Claude Code 切换前端零改动；真模型实跑（需 `ANTHROPIC_API_KEY`）。
 
 `packages/web`：
-- [ ] `PermissionDialog` 审批弹窗。
-- [ ] `ArtifactViewer`：3D HTML 用 iframe 预览（可旋转/漫游/点热点）+ 下载；热点/引用可回指来源节点。
-- [ ] 产物"提升"为新 `source` 节点。
+- [x] `PermissionDialog` 审批弹窗（替代 M2 自动放行；`store.respondPermission`）。
+- [x] `ArtifactViewer`：3D HTML 用 iframe 预览（可旋转/漫游/点热点）+ 下载/新标签打开。
+- [x] 产物"提升"为新 `source` 节点。
 
-**验收**：拖入 `model.gltf + 若干文档`，边写"模型居中可旋转、把章节绑成部件热点"，输出 `scene.html` + 软细节，点 Start → Agent 产出 SceneSpec → 审批 → 产出**自包含单文件 3D HTML**（双击即看、可交互、带文档热点与来源引用）；二次运行命中缓存秒出。
+**验收**：拖入 `model.gltf + 若干文档`，边写"模型居中可旋转、把章节绑成部件热点"，输出 `scene.html` + 软细节，点 Start → Agent 产出 SceneSpec → 审批 → 产出**自包含单文件 3D HTML**（双击即看、可交互、带文档热点与来源引用）；二次运行命中缓存秒出。✅ **M4a** `pnpm m4:smoke` 端到端通过（无 LLM、无外网/key）。M4b（接 Claude Code）待真模型实跑。
+
+> 实现说明（M4a）：
+> - **产出链路**：启发式 `SceneAgent`（`packages/agent`）基于图 + understanding 产出合法 `SceneSpec` → `request_permission` 审批 → 新增协议方法 `capability/invoke` 调用 Host 的 `scene.html` 能力。Bridge 在 agent→host 方向拦截 `capability/invoke`（不转发前端），由 `CapabilityRegistry` 执行。
+> - **scene.html 能力**：`export/inject-player` 把 `SceneSpec + gltf 资产(data URI) + 文档片段` 注入预构建 Player 单文件 HTML（`window.__DSWEAVE_SCENE__/__ASSETS__/__CHUNKS__`），内容寻址落盘 `.dsweave/artifacts/<hash>/index.html`；Host 同进程 HTTP 服务 `/_artifacts/<hash>/...` 供前端 iframe 预览/下载。
+> - **可插拔**：默认 `inProcessSceneAgentConnector`；`inProcessMockConnector`（M2/M3）保留。M4b 仅需在 `spawnStdioConnector` 边界换上官方 `@agentclientprotocol/sdk` + Claude Code，前端与内部协议零改。
 
 ---
 
@@ -164,6 +173,19 @@ node -v && pnpm -v
 - [ ] 错误恢复 + 用户文档 + 示例 `.flow.json` 与素材。
 
 **验收**：`app.react` 3D 输出可用；典型场景逐步通过；桌面包可运行。
+
+---
+
+### M6 · 内置 dscode Agent（自有引擎，后置）
+
+> 目标：把自有的 **dscode**（DeepSeek V4 Pro）作为**内置 agent** 接入，**不走 MCP**。详见 [05-agent-integration.md §4](./05-agent-integration.md)。竖切（M4 Claude Code）验证后再做。
+
+- [ ] dscode 加 headless `AcpBackend`（实现其 `UiBackend` 接缝，零界面）+ `--acp` 入口。
+- [ ] SceneSpec 收口对齐 M4 落地方案（写 `scene.spec.json`，或 `set_scene` builtin driver 二选一）。
+- [ ] 本仓：`spawnStdioConnector` 可切换目标到 `dscode --acp --cwd <workspace>`，env 透传 `DEEPSEEK_API_KEY`。
+- [ ] 验证 Claude Code ↔ dscode 切换前端零改动；真模型实跑（需 `DEEPSEEK_API_KEY`）。
+
+**验收**：dscode 作为内置 ACP agent 跑通主竖切；与 Claude Code 可热插拔切换，DSWeave 前端零改代码。
 
 ---
 

@@ -17,6 +17,9 @@
     "dev:player": "pnpm --filter @dsweave/player dev",
     "m2:smoke": "pnpm --filter @dsweave/host build && node packages/host/dist/smoke.js",
     "m3:smoke": "pnpm --filter @dsweave/host build && node packages/host/dist/m3-smoke.js",
+    "m4:smoke": "pnpm --filter @dsweave/player build && pnpm --filter @dsweave/host build && node packages/host/dist/m4-smoke.js",
+    "m4b:probe": "pnpm --filter @dsweave/host build && node packages/host/dist/m4b-probe.js",
+    "m4b:smoke": "pnpm --filter @dsweave/player build && pnpm --filter @dsweave/host build && node packages/host/dist/m4b-smoke.js",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

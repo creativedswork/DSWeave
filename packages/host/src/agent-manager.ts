@@ -7,7 +7,8 @@
  */
 import { spawn } from 'node:child_process';
 import { createMemoryTransportPair, type AcpTransport } from '@dsweave/protocol';
-import { createMockAgent, StdioTransport } from '@dsweave/agent';
+import { createMockAgent, createSceneAgent, StdioTransport } from '@dsweave/agent';
+import { createClaudeAgent, type ClaudeAgentOptions } from './claude/claude-agent.js';
 
 export interface AgentEndpoint {
   /** Host 侧用于与 Agent 通信的传输。 */
@@ -18,13 +19,38 @@ export interface AgentEndpoint {
 
 export type AgentConnector = () => AgentEndpoint;
 
-/** 进程内 Mock Agent（M2 默认）。 */
+/** 进程内 Mock Agent（M2/M3：状态流 + 占位产物）。 */
 export function inProcessMockConnector(): AgentEndpoint {
   const [hostSide, agentSide] = createMemoryTransportPair();
   const agent = createMockAgent(agentSide);
   return {
     transport: hostSide,
     dispose: () => agent.close(),
+  };
+}
+
+/** 进程内启发式 SceneSpec Agent（M4a：产出 SceneSpec → scene.html 能力）。 */
+export function inProcessSceneAgentConnector(): AgentEndpoint {
+  const [hostSide, agentSide] = createMemoryTransportPair();
+  const agent = createSceneAgent(agentSide);
+  return {
+    transport: hostSide,
+    dispose: () => agent.close(),
+  };
+}
+
+/**
+ * Claude 驱动的内部 Agent（M4b）：进程内 AgentSideConnection，onPrompt 经官方 ACP
+ * 驱动 claude-agent-acp 产出 SceneSpec → scene.html 能力。前端/内部协议/能力链路不变。
+ */
+export function inProcessClaudeAgentConnector(options: ClaudeAgentOptions = {}): AgentConnector {
+  return () => {
+    const [hostSide, agentSide] = createMemoryTransportPair();
+    const agent = createClaudeAgent(agentSide, options);
+    return {
+      transport: hostSide,
+      dispose: () => agent.close(),
+    };
   };
 }
 

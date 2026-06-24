@@ -11,6 +11,8 @@ import type { FlowGraph } from '@dsweave/core';
 import {
   RPC,
   type AcpTransport,
+  type CapabilityInvokeParams,
+  type CapabilityInvokeResult,
   type PromptParams,
   type RegisterFileParams,
   type RegisterFileResult,
@@ -19,8 +21,14 @@ import {
 import type { UnderstandingService } from './understanding-service.js';
 import { buildContext } from './context/builder.js';
 
+export type CapabilityInvoker = (
+  params: CapabilityInvokeParams,
+) => Promise<CapabilityInvokeResult>;
+
 export interface BridgeOptions {
   understanding?: UnderstandingService;
+  /** Agent 侧 capability/invoke 的处理器（Host 能力执行）。 */
+  onCapabilityInvoke?: CapabilityInvoker;
   /** 帧观测回调（仅旁路，不改变转发）。 */
   onFrame?: (direction: 'client->agent' | 'agent->client', message: unknown) => void;
 }
@@ -44,7 +52,7 @@ export function bridge(
   options: BridgeOptions = {},
 ): BridgeHandle {
   let closed = false;
-  const { understanding } = options;
+  const { understanding, onCapabilityInvoke } = options;
 
   client.onMessage((msg) => {
     if (isObject(msg)) {
@@ -63,6 +71,16 @@ export function bridge(
   });
 
   agent.onMessage((msg) => {
+    // Host 拦截：Agent 调用 Host 能力（capability/invoke），就地执行不转发前端。
+    if (
+      isObject(msg) &&
+      isRequest(msg) &&
+      msg.method === RPC.capabilityInvoke &&
+      onCapabilityInvoke
+    ) {
+      handleCapability(agent, onCapabilityInvoke, msg.id as number, msg.params as CapabilityInvokeParams);
+      return;
+    }
     options.onFrame?.('agent->client', msg);
     client.send(msg);
   });
@@ -102,6 +120,26 @@ function handleRegister(
     return;
   }
   client.send({ jsonrpc: '2.0', id, result });
+}
+
+/** 处理 Agent 的 capability/invoke：执行 Host 能力，把产物结果回给 Agent。 */
+function handleCapability(
+  agent: AcpTransport,
+  invoke: CapabilityInvoker,
+  id: number,
+  params: CapabilityInvokeParams,
+): void {
+  invoke(params)
+    .then((result) => {
+      agent.send({ jsonrpc: '2.0', id, result });
+    })
+    .catch((err: unknown) => {
+      agent.send({
+        jsonrpc: '2.0',
+        id,
+        error: { code: -32603, message: err instanceof Error ? err.message : String(err) },
+      });
+    });
 }
 
 /** 在转发给 Agent 前，给 prompt 的图注入 understanding，并附 ContextBuilder 上下文。 */

@@ -1,147 +1,173 @@
-# DSWeave · Agent 接入设计（dscode）
+# DSWeave · Agent 接入设计
 
-> 文档版本：v0.1 ｜ 配套：`01-architecture.md`、`02-technical-design.md`、`03-implementation-plan.md`、`04-player.md`
-> 主题：M4b 把**真实 Agent** 接进 DSWeave —— 复用自有的 **dscode**（DeepSeek V4 Pro 引擎），**不走 MCP**，保持现有 `web → Host(ACP) → Agent(stdio)` 拓扑不变。
-
----
-
-## 1. 背景与约束
-
-M4 的"真实 Agent"接入,有几条**已拍板的约束**:
-
-1. **接入对象 = dscode**（`creativedswork/dscode@develop`，本机 `~/Workspace/DeepSeekSpace/dscode`），我们自己维护,可改其源码。
-2. **不走 MCP**。dscode 本身是 MCP-first 的 host（它当 MCP client 挂外部工具）,但本次集成**不**采用"DSWeave 当 MCP server、dscode 连进来"的反向方案。
-3. **dscode 仅作为 Agent 引擎**,**零界面**;所有 UI 归 DSWeave 的 Web Canvas。
-4. **模型与 cwd 用 dscode 现成机制**,不另造配置表面。
-5. 真实 LLM 实跑需要 `DEEPSEEK_API_KEY`（运行时由操作者提供）。
+> 文档版本：v0.2 ｜ 配套：`01-architecture.md`、`02-technical-design.md`、`03-implementation-plan.md`、`04-player.md`
+>
+> **接入路线（已更新）**：
+> - **M4**：通过 [`@agentclientprotocol/claude-agent-acp`](https://github.com/agentclientprotocol/claude-agent-acp) 接入 **Claude Code**（现成官方 ACP agent，走 stdio）。先把主竖切 + SceneSpec 链路跑通。
+> - **M6**：把自有的 **dscode**（DeepSeek V4 Pro）作为**内置 agent** 接入（headless `AcpBackend`，不走 MCP）。后置。
 
 ---
 
-## 2. 核心结论：给 dscode 加一个 headless `AcpBackend`
+## 1. 接入策略
 
-dscode 的 `Harness.run(ui?: UiBackend)` 本就接受一个 backend：默认 `TuiBackend`（画终端）,`--web` 换 `WebUiBackend`（推 WebSocket）。
+Agent 始终是**可插拔**的：`web → Host(内部协议) → Agent(ACP over stdio)`。Host 在 stdio 边界说 **官方 ACP**（`@agentclientprotocol/sdk`），不同 Agent 实现只要是合规 ACP agent 即可热插拔，DSWeave 前端零改动。
 
-关键事实——dscode 把 **Agent 引擎的所有 IO 都从 `this.ui` 这一个口子走**（源码核对）：
+| 阶段 | Agent | 形态 | 价值 |
+| --- | --- | --- | --- |
+| M2/M3 | Mock | 进程内 / stdio | 验证可插拔抽象、文件理解链路 |
+| **M4** | **Claude Code** | `claude-agent-acp`（外部 npm，stdio） | 不自研 agent 即可跑通真实竖切 + SceneSpec |
+| M6 | dscode | 内置 headless `AcpBackend` | 自有引擎、DeepSeek、可深度定制 |
+
+> 先接 Claude Code 的理由：它是**现成、稳定的官方 ACP agent**，让我们把精力集中在「Player 渲染 + SceneSpec 契约 + scene.html 注入 + 产物交付」这条主竖切上，而不是同时调试一个新 agent 引擎。dscode 内置接入的设计已成熟（见 §4），但可后置到竖切验证之后。
+
+---
+
+## 2. M4 · 接入 Claude Code（`claude-agent-acp`）
+
+### 2.1 事实（已核对 npm，2026-06）
+
+> 注：`@zed-industries/*` 这套 ACP 包已整体**重命名**为 `@agentclientprotocol/*`（旧名仍可用但标 deprecated）。计划文档原本的包名即新名，采用之。
+
+| 项 | 值 |
+| --- | --- |
+| adapter npm 包 | **`@agentclientprotocol/claude-agent-acp@0.50.0`**（Apache-2.0；旧名 `@zed-industries/claude-code-acp@0.16.2` 已 deprecated） |
+| 启动 | bin `claude-agent-acp`；`npx -y @agentclientprotocol/claude-agent-acp`，stdio |
+| 运行时 | Node ≥ 20（本机 v22 ✅） |
+| 协议 SDK | 官方 **`@agentclientprotocol/sdk@0.29.0`**（`PROTOCOL_VERSION = 1`；`ClientSideConnection` + `ndJsonStream`；旧名 `@zed-industries/agent-client-protocol@0.4.5` 已 deprecated，API 兼容） |
+| 底层 | Claude Code CLI（本机 `claude` v2.1.185） |
+| 鉴权 | 三选一：① `ANTHROPIC_API_KEY`；② 本机 Claude Code 登录态（`~/.claude.json` / Keychain）；③ **DeepSeek 网关**（`~/.bash_profile` 设 `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`）。**本仓阶段 A 实测走 ③（DeepSeek `deepseek-v4-pro`）通过**。Host spawn 时透传 `process.env`，子进程继承。 |
+| 能力 | 工具调用 + 权限请求（`session/request_permission`）、`fs/read_text_file`、`fs/write_text_file`、terminals、session/update 流 |
+
+### 2.2 拓扑
+
+```mermaid
+graph LR
+  U[用户] --> W[Web Canvas]
+  W -->|内部协议 over WS| H[DSWeave Host]
+  H -->|spawn: claude-agent-acp<br/>官方 ACP over stdio| C[Claude Code Agent]
+  C -->|write scene.spec.json| FS[(workspace)]
+  H -->|turn 结束读取 + 校验| FS
+  H -->|注入 scene.html| P[R3F Player]
+  P --> W
+```
+
+### 2.3 关键决策一：stdio 边界说「官方 ACP」
+
+`claude-agent-acp` 走官方 ACP 线协议,而我们 `packages/protocol` 是**自研 ACP 形态**（方法名/语义对齐,但非官方线类型）。因此：
+
+- Host 在 stdio 边界**采用 `@agentclientprotocol/sdk` 作为 ACP client** 来 spawn 并对接 `claude-agent-acp`（`packages/host/src/claude/acp-client.ts`）。
+- **翻译收敛在一个「Claude 驱动的内部 Agent」里**（`packages/host/src/claude/claude-agent.ts`）：它实现与启发式 agent **完全相同的内部契约**（`AgentSideConnection`：`onPrompt` + `sessionUpdate` + `requestPermission` + `invokeCapability`），但 `onPrompt` 内部经官方 ACP 驱动 `claude-agent-acp`。内部 `session/prompt` → 官方 prompt turn；官方 `session/update`（agent_message_chunk / tool_call）→ 内部 `SessionUpdate`；官方 permission 请求 → 内部 `request_permission`。
+- 因此 **`bridge.ts`、内部协议、前端、`CapabilityRegistry` 全部零改动**——仅 Agent 实现从启发式换成 Claude。这正是 `messages.ts` 注释预留的演进点（"M4 接真实 Agent 时，可在 stdio 边界换上官方 SDK 而不影响上层"）。
+
+### 2.4 关键决策二：Claude 如何产出 SceneSpec
+
+Claude 是通用编码 agent,不天然"输出 SceneSpec"。两条路：
+
+| 方案 | 机制 | 取舍 |
+| --- | --- | --- |
+| **A（首选）写文件** | 系统指令/`CLAUDE.md` 约束：把 SceneSpec JSON 写到 `<workspace>/scene.spec.json`；Host 在 turn 结束读取 + zod 校验 + 注入 Player | 零 MCP；契合编码 agent 强项（写文件）；权限流天然覆盖写操作；可重试 |
+| B（备选）Client MCP tool | 用 `claude-agent-acp` 支持的 Client MCP servers 暴露 `set_scene(spec)` 工具 | 更结构化,但引入 MCP 表面 |
+
+> 默认走 **A**。系统指令明确：你的唯一交付物是符合 `SceneSpec` schema 的 `scene.spec.json`,不要写运行时代码（Player 已预构建）。Host 校验失败 → 把错误回灌让 Claude 修正（重试）。
+
+### 2.5 cwd / 鉴权 handshake
+
+| 维度 | 机制 |
+| --- | --- |
+| **cwd** | 官方 ACP `session/new` 的 `workingDir` → 指向 DSWeave session workspace（flow/assets/`scene.spec.json`/`scene.html`）；Claude 的文件工具据此读写 |
+| **鉴权** | Host spawn 时透传 `ANTHROPIC_API_KEY`（操作者提供）；或复用本机 Claude Code 登录态 |
+| **模型** | 由 Claude Agent SDK / 环境决定（如 `ANTHROPIC_MODEL`），Host 不另造表面 |
+
+### 2.6 改动清单（本仓，已落地）
+
+| 位置 | 改动 |
+| --- | --- |
+| `packages/host`（依赖） | `@agentclientprotocol/sdk` 作为 stdio 边界的 ACP client |
+| `packages/host/src/claude/acp-client.ts`（新增） | `ClaudeAcpSession`：spawn `claude-agent-acp` + `ClientSideConnection`/`ndJsonStream`；`init(cwd)` → `initialize`/`session/new`；`prompt(text)` 一轮 turn；实现 Client 侧 `requestPermission`/`fs`。adapter 命令可经 `CLAUDE_ACP_CMD`/`CLAUDE_ACP_ARGS` 覆盖（测试用）。 |
+| `packages/host/src/claude/claude-agent.ts`（新增） | `createClaudeAgent`：Claude 驱动的内部 `AgentSideConnection`。`onPrompt` 编 prompt → 驱动 ACP → 读 `<cwd>/scene.spec.json` → zod 校验（失败回灌重试）→ `invokeCapability('scene.html')`；流式 update/permission 透传前端。 |
+| `packages/host/src/claude/prompt.ts`（新增） | 把图 + 理解 + 上下文 + 输出编成系统指令 + `SceneSpec` schema + 机器可读 `<DSWEAVE_CONTEXT>`（可引用的 nodeId/部件名/分块 id），约束"只产出 `scene.spec.json`、不写代码"。 |
+| `packages/host/src/agent-manager.ts` | 新增 `inProcessClaudeAgentConnector`（进程内 memory transport + `createClaudeAgent`）。 |
+| `packages/host/src/index.ts` / `main.ts` | `agentKind: 'mock'\|'scene'\|'claude'` + `connectorForKind`；`DSWEAVE_AGENT=claude` 选 Claude。 |
+| `packages/host/src/claude/fake-adapter.ts`（新增） | 测试用「假 ACP Agent」（说官方 ACP，写合法 SceneSpec），供 `m4b:smoke` 在沙箱内验证全链路。 |
+| `packages/host/bridge.ts` | **零改动**（翻译收敛在 Claude agent 内）。 |
+| `packages/core` | `SceneSpec` 类型 + zod schema（M4 共用）。 |
+
+### 2.7 验收
+
+- [x] **阶段 A 探针**（`pnpm m4b:probe`，见 `packages/host/src/m4b-probe.ts`）：Host 用官方 ACP SDK（`@agentclientprotocol/sdk`）spawn `@agentclientprotocol/claude-agent-acp`。**已实测（2026-06-24）**：`spawn → initialize(protocolVersion=1) → session/new` 全通过，**证明链路 + 鉴权（读 `~/.claude/settings.json` 的 key）正常**；`session/prompt` 因账户 `Credit balance is too low` 失败 → 探针识别为计费问题并打印 `M4B_HANDSHAKE_OK ⚠️`。补余额/换有额度 key 后即可走完整 turn（Claude 经 `fs/write_text_file` 写哨兵文件 → `M4B_PROBE_OK`）。
+- [x] **阶段 A 探针完整通过（2026-06-24）**：经本机 DeepSeek 网关（`~/.bash_profile` 的 `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`）真调模型，`spawn → initialize → session/new → session/prompt`（Claude 调 `Write` 工具、走 ACP 权限请求）→ 写哨兵文件 → `end_turn` 全通过，`M4B_PROBE_OK ✅`。
+- [x] **阶段 B 全链路（沙箱内，`pnpm m4b:smoke`）✅**：用「假 ACP Agent」替身（说官方 ACP）验证 Host 官方 ACP client + scene.spec.json 收口 + 校验 + `scene.html` 能力出物 + 权限翻译 + 产物缓存全通过，且 `bridge.ts`/内部协议/前端零改动。
+- [x] SceneSpec 校验失败可回灌重试直至合法（`claude-agent.ts` 内 `maxRetries`，错误经 `buildRetryPrompt` 回灌）。
+- [x] 切换 Mock ↔ scene ↔ Claude（`DSWEAVE_AGENT` / `agentKind`），DSWeave 前端零改代码。
+- [ ] **真模型竖切（操作者本机）**：`DSWEAVE_AGENT=claude pnpm dev:host` + `pnpm dev:web`，拖入 gltf+文档、写关系、选 `scene.html` → Claude 产出合法 `scene.spec.json` → Host 注入 → **自包含单文件 3D HTML**（需本机 Claude 登录态或 DeepSeek 网关；沙箱内不可联网实测）。
+
+---
+
+## 3. M4a / M4b（M4 内部分步）
+
+- **M4a（确定性、无 LLM）✅ 已落地**：Player 渲染 + `scene.html` 注入 + **启发式 SceneSpec agent** 走现有内部链路 → `pnpm m4:smoke` 绿。不依赖外网/key。
+  - Agent 经新增协议方法 `capability/invoke` 调用 Host `scene.html` 能力（Bridge 在 agent→host 方向拦截）；产物内容寻址落盘 + HTTP 静态服务预览；审批走 `request_permission` + Web `PermissionDialog`。
+  - 收口选择：M4a 采用 **`capability/invoke`（结构化）** 而非「写 `scene.spec.json` 文件」——因启发式 agent 在进程内、SceneSpec 直接可达；M4b 接 Claude Code 时改走「写文件 + turn 结束读取校验」（§2.4 方案 A），两者经同一 `CapabilityRegistry` 收敛到 `scene.html` 能力。
+- **M4b（接 Claude Code）✅ 已落地**：
+  - **阶段 A（探针）✅**：`pnpm m4b:probe`（`packages/host/src/m4b-probe.ts`）独立验证 Host↔`claude-agent-acp` 官方 ACP 握手 + 写文件 prompt turn，不碰 DSWeave 业务。**2026-06-24 经 DeepSeek 网关真调通过 `M4B_PROBE_OK`**。
+  - **阶段 B（完整接入）✅**：翻译收敛在 **Claude 驱动的内部 Agent**（`packages/host/src/claude/`，见 §2.3/§2.6），`bridge.ts`/内部协议零改动；turn 结束读取 `scene.spec.json` → zod 校验（失败回灌重试）→ `scene.html` 注入。`inProcessClaudeAgentConnector` spawn `claude-agent-acp`（adapter 命令可覆盖）。
+  - **阶段 B 沙箱验证**：`pnpm m4b:smoke`（`packages/host/src/m4b-smoke.ts` + `fake-adapter.ts`）以假 ACP 替身跑通除「真模型」外的全部代码路径；真模型竖切由操作者本机 `DSWEAVE_AGENT=claude` 运行。
+
+---
+
+## 4. M6 · 内置 dscode（后置）
+
+> 目标：把自有的 **dscode**（`creativedswork/dscode`，本机 `~/Workspace/DeepSeekSpace/dscode`，DeepSeek V4 Pro）作为**内置 agent**。**不走 MCP**。竖切（M4）验证后再做。
+
+### 4.1 结论：给 dscode 加 headless `AcpBackend`
+
+dscode 的 `Harness.run(ui?: UiBackend)` 接受一个 backend（默认 `TuiBackend`，`--web` 换 `WebUiBackend`）。dscode 把 **Agent 引擎的所有 IO 都从 `this.ui` 这一个口子走**（源码核对）：
 
 | 行为 | 源码位置 | 经由 |
 | --- | --- | --- |
 | 权限请求 | `harness.ts:70` | `this.ui.getPromptPermission()` |
 | thinking/text 流 | `harness.ts:1055/1058` | `this.ui.thinkingDelta / textDelta` |
 | 工具调用起止 | `harness.ts:1064/1070` | `this.ui.toolStart / toolEnd` |
-| 消息/处理生命周期 | `harness.ts:1090-1099` | `this.ui.startAssistantMessage / finishAssistantMessage / setProcessing` |
-| 重试/错误/信息 | `harness.ts:214-271` 等 | `this.ui.addRetry / addError / addInfo` |
+| 消息/处理生命周期 | `harness.ts:1090-1099` | `startAssistantMessage / finishAssistantMessage / setProcessing` |
 
-也就是说,`UiBackend` 名为"UI",**功能上是 Agent 引擎对外的唯一 IO 端口**。`TuiBackend`/`WebBackend` 只是这个端口的两个"渲染器"。
-
-> **所以方案 = 加第三个"渲染器" `AcpBackend`,它渲染的目标是 ACP/stdio 字节流,不是屏幕。它一个像素都不画。界面 100% 是 DSWeave。**
+即 `UiBackend` 名为 UI，**功能上是 Agent 引擎对外的唯一 IO 端口**。`AcpBackend` = 这个端口的第三个"渲染器",渲染目标是 ACP/stdio 字节流,**不画任何界面;界面 100% 归 DSWeave**。走此接缝 = 零改动复用（事件绑定/权限/重试都已接在 `this.ui` 上）；绕开则需在 DSWeave 侧重实现 `harness.ts:1055-1167`,等于 fork。
 
 ```mermaid
 graph LR
-  HZ[dscode Harness<br/>Agent 引擎 · DeepSeek V4 Pro] -->|this.ui 唯一 IO 端口| SEAM{ }
+  HZ[dscode Harness · DeepSeek] -->|this.ui 唯一 IO 端口| SEAM{ }
   SEAM --> T[TuiBackend → 终端]
   SEAM --> W[WebBackend → 浏览器]
-  SEAM --> A[AcpBackend → ACP/stdio<br/>headless · 不画任何东西]
-  A -->|JSON-RPC| DS[DSWeave Host → Web Canvas<br/>这里才是界面]
+  SEAM --> A[AcpBackend → ACP/stdio · headless]
+  A -->|JSON-RPC| DS[DSWeave Host → Web Canvas]
 ```
 
-### 为什么不绕开 backend 直接驱动 Harness？
+### 4.2 模型与 cwd（dscode 已现成）
 
-理论上可调 `harness.promptAndSave()` 再自己监听 `agent` 原始事件。但 `Harness` 已把**事件绑定 + 权限路由 + 重试反馈**全接到 `this.ui`。走这个口子 = **零改动复用**；绕开 = 在 DSWeave 侧把 `harness.ts:1055-1167` 那套重新实现一遍,等于 fork dscode 核心。故选 `UiBackend` 接缝。
-
----
-
-## 3. 端到端拓扑
-
-```mermaid
-graph LR
-  U[用户] --> W[Web Canvas]
-  W -->|ACP over WS| H[DSWeave Host]
-  H -->|spawn: dscode --acp --cwd workspace<br/>stdio JSON-RPC| A[dscode AcpBackend]
-  A --> HZ[dscode Harness<br/>DeepSeek · tools/permission/context]
-  HZ -->|set_scene 工具| A
-  A -->|session/update type=scene| H
-  H -->|注入 scene.html| P[R3F Player]
-  P --> W
-```
-
-ACP 链路与 M2/M3 完全一致；唯一新增是 Agent 通过工具产出 **SceneSpec**,经 `session/update` 的新变体回流 Host。
-
----
-
-## 4. 模型与 cwd 设计（dscode 已现成）
-
-dscode 已支持，DSWeave 只在 **spawn 配置块**里带 `{ cwd, env }` 即可,**无新配置表面**。
-
-| 维度 | dscode 现状 | DSWeave 怎么用 |
+| 维度 | dscode 现状 | 用法 |
 | --- | --- | --- |
-| **cwd** | `main.ts` 支持 `--cwd <dir>` → `loadConfig(cwd)` → 项目级 `.dscode/settings.json` + checkpoint 根 | spawn 时传 `--cwd <session workspace>`，即放 flow/assets/`scene.html` 的目录 |
-| **模型** | `~/.dscode/config.json`（`/config` 写）+ env：`DEEPSEEK_API_KEY`/`AGENT_PROVIDER`/`AGENT_MODEL`/`AGENT_THINKING_LEVEL` | spawn 时把这些 env 透传进子进程；模型选择仍归 dscode |
+| cwd | `main.ts` 支持 `--cwd <dir>` → `loadConfig(cwd)` | spawn 传 `--cwd <workspace>` |
+| 模型 | `~/.dscode/config.json` + env（`DEEPSEEK_API_KEY`/`AGENT_PROVIDER`/`AGENT_MODEL`） | spawn 透传 env，模型选择归 dscode |
 
-约定：**dscode 的项目路径与 DSWeave 的 session workspace 指向同一目录**,使 dscode 的 fs 驱动、`@file`、DSWeave 的理解产物、Player 注入物共享同一相对路径基准。
-
----
-
-## 5. 改动清单
-
-### 5.1 dscode 侧（`~/Workspace/DeepSeekSpace/dscode`）
+### 4.3 改动清单（dscode 侧）
 
 | 文件 | 改动 |
 | --- | --- |
-| `src/ui/acp-backend.ts`（新增） | 实现 `UiBackend`：stdin/stdout 上的 ACP JSON-RPC。收 `session/prompt` → `harness.promptAndSave()`；把 `textDelta/thinkingDelta/toolStart/toolEnd` 映射成 `session/update`；`getPromptPermission()` 发 `session/request_permission` 等决策；`waitForExit()` 在 stdin 关闭时退出。**不渲染任何界面。** |
-| `src/drivers/set-scene.ts`（新增）+ `registry.ts` 注册 | **builtin driver `set_scene(spec)`**（与 `fs`/`shell` 同级,**非 MCP**）。模型调它提交 SceneSpec；用 SceneSpec zod schema 校验后,经 `session/update{type:'scene'}` 发回 Host。这是"Agent 只输出数据"的可靠落地。 |
-| `src/core/main.ts` | 加 `--acp` 分支（对照现有 `--web`），选 `AcpBackend`。 |
-| system prompt | 追加：产物是 SceneSpec,必须通过 `set_scene` 工具提交,不写代码。 |
-| （可选）`UiBackend` 改名 | headless 现为一等场景,可把 `UiBackend` 改名 `AgentBackend`/`AgentIoPort`,接口不变,消除"必须是 GUI"的误解。 |
+| `src/ui/acp-backend.ts`（新增） | 实现 `UiBackend`：stdio 上说 ACP；`session/prompt`→`promptAndSave`；事件→`session/update`；`getPromptPermission`→`request_permission`。零界面。 |
+| `src/drivers/set-scene.ts`（新增）+ `registry.ts` | builtin driver `set_scene(spec)`（**非 MCP**），校验后经 `session/update{type:'scene'}` 回流 Host。 |
+| `src/core/main.ts` | 加 `--acp` 分支选 `AcpBackend`。 |
+| system prompt | 产物是 SceneSpec，必须经 `set_scene` 提交，不写代码。 |
+| （可选）`UiBackend` 改名 | → `AgentBackend`/`AgentIoPort`，消除"必须是 GUI"误解。 |
 
-> `Harness` 核心、Agent loop、`run()` 签名**都不动**。
-
-### 5.2 DSWeave 侧（本仓）
-
-| 位置 | 改动 |
-| --- | --- |
-| `packages/host/agent-manager.ts` | 复用 `spawnStdioConnector` 槽；M4b 把目标设为 `node <dscode>/dist/dscode.mjs --acp --cwd <workspace>`,env 透传 key。 |
-| `packages/host`（prompt 组装） | 把 `PromptInput`（graph + context + 注入的 understanding，M3 产物）拼成给 DeepSeek 的文本指令。 |
-| `packages/protocol/messages.ts` | `SessionUpdate` 增 `{ type: 'scene'; spec: SceneSpec }` 变体；Host 收到即校验 + 注入 `scene.html` 推给 Player。 |
+> M6 时若 M4 已采用「写 `scene.spec.json`」收口，dscode 侧亦可对齐成写文件方案，省去 `set_scene` driver；二选一以 M4 实际落地为准。
 
 ---
 
-## 6. ACP ↔ dscode UiBackend 映射
-
-| DSWeave ACP | dscode `UiBackend` 方法 | 方向 |
-| --- | --- | --- |
-| `session/prompt`（in） | `harness.promptAndSave(text, images)` | Host → Agent |
-| `session/update {type:'log'\|'agent-text'}` | `textDelta` / `thinkingDelta` / `addInfo` | Agent → Host |
-| `session/update {type:'tool-call'}` | `toolStart` / `toolEnd` | Agent → Host |
-| `session/update {type:'scene'}` | `set_scene` driver 捕获 | Agent → Host |
-| `session/request_permission` | `getPromptPermission()` | Agent → Host（等回复）|
-| `PromptResult{stopReason}` | `setProcessing(false)` / `agent_end` | Agent → Host |
-
----
-
-## 7. M4a / M4b 分阶段落地（一条龙、分步可验）
-
-- **M4a（本仓，确定性，无 dscode、无 key）**：Player 渲染 + `scene.html` 注入 + **启发式 SceneSpec agent** 走现有 ACP 链路 → `m4:smoke` 绿。先把竖切跑通。
-- **M4b（跨两仓）**：dscode 加 `AcpBackend` + `set_scene` driver + `--acp`；本仓加 spawn 契约 + prompt 组装 + `scene` 变体；把 spawn 目标从启发式换成 dscode。
-  - 沙箱里可用 **Mock ↔ dscode 切换**证明"前端零改动"；
-  - **真模型实跑**需操作者提供 `DEEPSEEK_API_KEY`。
-
----
-
-## 8. 验收
-
-- [ ] M4a：启发式 agent 产出合法 SceneSpec → Host 注入 → 自包含 3D HTML 跑得起来（`m4:smoke` 绿）。
-- [ ] M4b 骨架：`dscode --acp` 能被 Host spawn、说 ACP、`set_scene` 工具产出经校验回流 Host；权限/日志/工具流在 Web Canvas 实时可见。
-- [ ] 切换 Mock ↔ dscode，DSWeave 前端**零改代码**。
-- [ ] 给定 `DEEPSEEK_API_KEY` 后真模型端到端产出 SceneSpec（运行时验收）。
-- [ ] cwd：dscode 项目路径 = DSWeave session workspace；模型经 dscode config/env 配置生效。
-
----
-
-## 9. 风险与备选
+## 5. 风险与备选
 
 | 风险 | 应对 |
 | --- | --- |
-| SceneSpec 捕获不稳（模型不调工具） | 首选 `set_scene` builtin driver（强约束 + 校验 + 重试）；备选解析末条消息的 fenced JSON。 |
-| dscode 的 `UiBackend` 后续 API 变动 | 我们自维护；`AcpBackend` 与 TUI/Web 同实现一套接口,随上游演进同步。 |
-| 真 LLM 不可在沙箱实测 | 链路用 Mock↔dscode 切换证明可插拔；真模型留作运行时验收。 |
-| dscode 自带 fs/bash 等工具越权 | 复用 dscode 权限层（`beforeToolCall`）+ DSWeave `request_permission` 审批；cwd 沙箱限定 workspace。 |
+| 内部协议 ↔ 官方 ACP 映射有缺口 | 先覆盖 prompt/update/permission 子集；bridge 单测；不支持的官方变体降级为日志 |
+| Claude 不稳定产出合法 SceneSpec | 强系统约束 + schema 回灌重试；备选 Client MCP `set_scene` 工具 |
+| 真 LLM 不可在沙箱实测 | M4a 启发式跑绿；Mock↔Claude 切换证明可插拔；真模型留运行时验收 |
+| Claude 自带 fs/bash/terminal 越权 | ACP permission 请求 → DSWeave 审批；`workingDir` 沙箱限定 workspace |
+| `claude-agent-acp` 版本演进 | 锁版本 + 关注 ACP SDK 兼容；Agent 可插拔，必要时回退 Mock |

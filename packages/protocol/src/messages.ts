@@ -5,7 +5,16 @@
  * 自研层让 AcpTransport / Client / AgentSideConnection 抽象成立且零外部风险；
  * 待 M4 接真实 Agent 时，可在 stdio 边界换上官方 SDK 而不影响上层。
  */
-import type { Chunk, ExecStatus, FileRef, FlowGraph, OutputSpec, Understanding } from '@dsweave/core';
+import type {
+  Artifact,
+  Chunk,
+  ExecStatus,
+  FileRef,
+  FlowGraph,
+  OutputSpec,
+  SceneSpec,
+  Understanding,
+} from '@dsweave/core';
 import type { ToolCallState } from './events.js';
 
 /** ACP 方法名常量。 */
@@ -20,6 +29,11 @@ export const RPC = {
   sessionUpdate: 'session/update',
   /** Agent → Client：请求危险操作授权（请求）。 */
   requestPermission: 'session/request_permission',
+  /**
+   * Agent → Host：调用一项 Host 能力产出产物（Host 侧拦截处理，不转发前端）。
+   * scene.html：input = { spec: SceneSpec } → 注入预构建 Player bundle → 自包含 HTML 产物。
+   */
+  capabilityInvoke: 'capability/invoke',
   /**
    * Client → Host：登记一个文件并触发文件理解（Host 侧能力，不转发给 Agent）。
    * 返回内容 hash；命中缓存时直接带回 Understanding，否则异步经 understandingUpdate 回填。
@@ -151,4 +165,28 @@ export interface UnderstandingNotification {
   nodeId: string;
   hash: string;
   understanding: Understanding;
+}
+
+// ---------- 能力调用（Agent → Host） ----------
+
+/** scene.html 能力的输入：Agent 唯一交付物 SceneSpec。 */
+export interface SceneHtmlInput {
+  spec: SceneSpec;
+}
+
+/** capability/invoke 入参。 */
+export interface CapabilityInvokeParams {
+  sessionId: string;
+  /** 能力 id（如 'scene.html'）。 */
+  capability: string;
+  /** 关联的输出节点 id。 */
+  outputNodeId?: string;
+  /** 能力输入（scene.html → SceneHtmlInput）。 */
+  input: unknown;
+}
+
+/** capability/invoke 返回：产出物 + 是否命中缓存。 */
+export interface CapabilityInvokeResult {
+  artifact: Artifact;
+  cached: boolean;
 }

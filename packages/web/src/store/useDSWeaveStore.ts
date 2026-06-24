@@ -52,6 +52,13 @@ export interface ArtifactEntry {
   fromNodeId?: string;
 }
 
+/** 待审批的授权请求（驱动 PermissionDialog）。 */
+export interface PendingPermission {
+  id: string;
+  summary: string;
+  options: string[];
+}
+
 /** 运行时持有的 blob URL，工作流重置/加载时统一回收。 */
 const liveObjectUrls = new Set<string>();
 function trackUrls(urls: string[]): void {
@@ -143,6 +150,10 @@ interface DSWeaveState {
   toolCalls: ToolCard[];
   artifacts: ArtifactEntry[];
   runError: string | null;
+  /** 当前待审批的授权请求（null = 无）。 */
+  pendingPermission: PendingPermission | null;
+  /** 当前在 ArtifactViewer 中预览的产物 uri（null = 关闭）。 */
+  viewingArtifact: string | null;
 
   setFlowName: (name: string) => void;
   onNodesChange: (changes: NodeChange<DSNode>[]) => void;
@@ -168,6 +179,12 @@ interface DSWeaveState {
   start: () => Promise<void>;
   cancel: () => void;
   clearRun: () => void;
+  /** 回应当前授权请求（驱动 client.respondPermission）。 */
+  respondPermission: (allow: boolean) => void;
+  /** 打开/关闭产物预览。 */
+  viewArtifact: (uri: string | null) => void;
+  /** 把产物「提升」为新的 source 节点（复用为后续工作流输入）。 */
+  promoteArtifact: (uri: string) => void;
 }
 
 const STAGGER = 28;
@@ -189,6 +206,8 @@ export const useDSWeaveStore = create<DSWeaveState>((set, get) => ({
   toolCalls: [],
   artifacts: [],
   runError: null,
+  pendingPermission: null,
+  viewingArtifact: null,
 
   setFlowName: (name) => set({ flowName: name }),
 
@@ -325,6 +344,8 @@ export const useDSWeaveStore = create<DSWeaveState>((set, get) => ({
       toolCalls: [],
       artifacts: [],
       runError: null,
+      pendingPermission: null,
+      viewingArtifact: null,
     });
   },
 
@@ -412,13 +433,45 @@ export const useDSWeaveStore = create<DSWeaveState>((set, get) => ({
       toolCalls: [],
       artifacts: [],
       runError: null,
+      pendingPermission: null,
+      viewingArtifact: null,
     });
   },
 
   exportJson: () => serialize(get().toFlowGraph()),
 
   clearRun: () =>
-    set({ runtime: {}, logs: [], toolCalls: [], artifacts: [], runError: null }),
+    set({ runtime: {}, logs: [], toolCalls: [], artifacts: [], runError: null, pendingPermission: null }),
+
+  respondPermission: (allow) => {
+    const pending = get().pendingPermission;
+    if (!pending) return;
+    activeClient?.respondPermission(pending.id, allow);
+    set((s) => ({
+      pendingPermission: null,
+      logs: [
+        ...s.logs,
+        { id: ++logSeq, level: allow ? 'info' : 'warn', text: `授权${allow ? '已批准' : '已拒绝'}：${pending.summary}`, ts: Date.now() },
+      ],
+    }));
+  },
+
+  viewArtifact: (uri) => set({ viewingArtifact: uri }),
+
+  promoteArtifact: (uri) =>
+    set((s) => {
+      const node: DSNode = {
+        id: uid('node'),
+        type: 'source',
+        position: { x: 80, y: 80 + s.nodes.length * STAGGER },
+        data: {
+          kind: 'source',
+          label: uri.split('/').slice(-2).join('/'),
+          file: { uri, mime: 'text/html', type: 'html' },
+        },
+      };
+      return { nodes: [...s.nodes, node], viewingArtifact: null };
+    }),
 
   cancel: () => {
     activeClient?.cancel();
@@ -437,7 +490,7 @@ export const useDSWeaveStore = create<DSWeaveState>((set, get) => ({
     const log = (level: LogEntry['level'], text: string) =>
       set((s) => ({ logs: [...s.logs, { id: ++logSeq, level, text, ts: Date.now() }] }));
 
-    set({ running: true, runtime: {}, logs: [], toolCalls: [], artifacts: [], runError: null });
+    set({ running: true, runtime: {}, logs: [], toolCalls: [], artifacts: [], runError: null, pendingPermission: null });
 
     let client: DSWeaveAcpClient;
     try {
@@ -453,7 +506,7 @@ export const useDSWeaveStore = create<DSWeaveState>((set, get) => ({
       await client.newSession({ workingDir: '.', capabilities: CAPABILITIES });
       const graph = get().toFlowGraph();
       for await (const ev of client.run(graph)) {
-        applyEvent(set, client, ev);
+        applyEvent(set, ev);
         if (ev.kind === 'done') break;
       }
     } catch (err) {
@@ -473,7 +526,7 @@ type SetState = (
 ) => void;
 
 /** 把一个 DSWeaveEvent 应用到 store。 */
-function applyEvent(set: SetState, client: DSWeaveAcpClient, ev: DSWeaveEvent): void {
+function applyEvent(set: SetState, ev: DSWeaveEvent): void {
   const pushLog = (level: LogEntry['level'], text: string) =>
     set((s) => ({ logs: [...s.logs, { id: ++logSeq, level, text, ts: Date.now() }] }));
 
@@ -506,9 +559,9 @@ function applyEvent(set: SetState, client: DSWeaveAcpClient, ev: DSWeaveEvent): 
       pushLog('info', `产物：${ev.uri}`);
       break;
     case 'permission-request':
-      // M2：自动放行（M4 接入 PermissionDialog 审批）。
-      pushLog('warn', `授权请求：${ev.summary}（M2 自动放行）`);
-      client.respondPermission(ev.id, true);
+      // M4：交由 PermissionDialog 人工审批（client 在 store.respondPermission 中回应）。
+      pushLog('warn', `授权请求：${ev.summary}`);
+      set({ pendingPermission: { id: ev.id, summary: ev.summary, options: ev.options } });
       break;
     case 'done':
       pushLog(ev.reason === 'end_turn' ? 'info' : 'warn', `结束：${ev.reason}`);

@@ -21,6 +21,7 @@
     "@dsweave/core": "workspace:*",
     "@dsweave/protocol": "workspace:*",
     "@dsweave/agent": "workspace:*",
+    "@agentclientprotocol/sdk": "^0.29.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
