@@ -116,6 +116,10 @@ node -v && pnpm -v
 ### M4 · 主竖切（gltf + 文档 → `scene.html` 3D 沉浸页）
 
 > 已确认的**首条主竖切用例**。运行时＝数据驱动的自研 R3F Player；Agent 只产出 SceneSpec；交付自包含单文件 HTML。
+>
+> **分两阶段（一条龙、分步可验，详见 [05-agent-integration.md](./05-agent-integration.md)）**：
+> - **M4a**（本仓、确定性、无 LLM）：Player 渲染 + `scene.html` 注入 + **启发式 SceneSpec agent** 走现有 ACP 链路跑通竖切。
+> - **M4b**（跨两仓）：给自有的 **dscode** 加 headless `AcpBackend`（**不走 MCP**），把 spawn 目标从启发式换成 `dscode --acp`，接 DeepSeek 真实 Agent。模型/cwd 用 dscode 现成机制；真模型实跑需 `DEEPSEEK_API_KEY`。
 
 `packages/core`：
 - [ ] `SceneSpec` 类型 + zod schema（Agent 产出物的契约）。
@@ -133,9 +137,14 @@ node -v && pnpm -v
 - [ ] `gltf.render`、`fs.write` 能力；缓存命中标识（key 含 Player 版本）。
 - [ ] **产物处理与交付**（详见技术设计 §5.4）：`Artifact`(core) 类型；内容寻址落盘 `.dsweave/artifacts/<hash>/`；单文件直接交付，多文件 dist 起本地静态服务 `/_artifacts/<hash>/` 预览 + zip 下载；产物可「提升」为新 source 节点（复用 `FileRef.assets`）。
 
-`packages/agent`（真实/可插拔）：
-- [ ] `tools/`：把 Host 能力暴露为 tool_call；约束 Agent **只产出 SceneSpec**，不写代码。
+`packages/agent`（M4a：启发式可插拔）：
+- [ ] 启发式 SceneSpec 生成器：基于 graph + understanding 直接产出合法 `SceneSpec`（无 LLM），约束**只产出 SceneSpec**，不写代码。
 - [ ] 执行循环 + SceneSpec 校验/重试 + `request_permission`。
+
+**M4b：接 dscode 真实 Agent**（详见 [05-agent-integration.md](./05-agent-integration.md)）：
+- [ ] dscode 加 headless `AcpBackend`（实现其 `UiBackend` 接缝）+ `set_scene` builtin driver（非 MCP）+ `--acp` 入口。
+- [ ] 本仓：`spawnStdioConnector` 指向 `dscode --acp --cwd <workspace>`；prompt 组装；`SessionUpdate` 增 `{type:'scene'}` 变体。
+- [ ] 验证 Mock ↔ dscode 切换前端零改动；真模型实跑（需 `DEEPSEEK_API_KEY`）。
 
 `packages/web`：
 - [ ] `PermissionDialog` 审批弹窗。
