@@ -12,7 +12,6 @@ import type {
   FileRef,
   FlowGraph,
   OutputSpec,
-  SceneSpec,
   Understanding,
 } from '@dsweave/core';
 import type { ToolCallState } from './events.js';
@@ -31,7 +30,7 @@ export const RPC = {
   requestPermission: 'session/request_permission',
   /**
    * Agent → Host：调用一项 Host 能力产出产物（Host 侧拦截处理，不转发前端）。
-   * scene.html：input = { spec: SceneSpec } → 注入预构建 Player bundle → 自包含 HTML 产物。
+   * scene.html：input = { html: string } → 注入 model-viewer 运行时 + 内联资产 → 自包含 HTML 产物。
    */
   capabilityInvoke: 'capability/invoke',
   /**
@@ -169,9 +168,9 @@ export interface UnderstandingNotification {
 
 // ---------- 能力调用（Agent → Host） ----------
 
-/** scene.html 能力的输入：Agent 唯一交付物 SceneSpec。 */
-export interface SceneHtmlInput {
-  spec: SceneSpec;
+/** scene.html 能力的输入：Agent 自撰的自包含 HTML（含 asset:// 占位引用）。 */
+export interface HtmlPageInput {
+  html: string;
 }
 
 /** capability/invoke 入参。 */
@@ -181,7 +180,7 @@ export interface CapabilityInvokeParams {
   capability: string;
   /** 关联的输出节点 id。 */
   outputNodeId?: string;
-  /** 能力输入（scene.html → SceneHtmlInput）。 */
+  /** 能力输入（scene.html → HtmlPageInput）。 */
   input: unknown;
 }
 
