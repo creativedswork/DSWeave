@@ -4,13 +4,13 @@
  * 任何「说官方 ACP 的子进程」（Claude Code 的 claude-agent-acp、Gemini CLI 的 `gemini --acp` 等）
  * 接入方式完全一致：实现与启发式 Agent 相同的内部契约（AgentSideConnection：onPrompt +
  * sessionUpdate + requestPermission + invokeCapability），onPrompt 内部经官方 ACP 驱动该子进程
- * 产出 scene.spec.json，再交给 Host 的 scene.html 能力出物。
+ * 产出 index.html，再交给 Host 的 scene.html 能力出物。
  *
  * 因此前端 / 内部协议 / bridge / 能力链路全部不变，**新增一个后端只需提供 adapter 的
  * 启动命令（command/args）与一个展示用 label**——这就是本文件存在的意义（DRY 收口）。
  *
  * 流程：编 prompt → spawn ACP adapter → prompt turn（流式 update/permission 透传前端）
- *   → 读 <cwd>/scene.spec.json → zod 校验（失败回灌重试）→ invokeCapability('scene.html') → 产物。
+ *   → 读 <cwd>/index.html → 文本校验（失败回灌重试）→ invokeCapability('scene.html') → 产物。
  */
 import { mkdirSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
@@ -22,15 +22,15 @@ import {
   type NewSessionResult,
   type PromptParams,
   type PromptResult,
-  type SceneHtmlInput,
+  type HtmlPageInput,
 } from '@dsweave/protocol';
-import { safeValidateSceneSpec, type SceneSpec } from '@dsweave/core';
 import { capabilityForOutput } from '../capabilities/index.js';
 import { AcpSession, type AcpSessionOptions } from '../claude/acp-client.js';
-import { buildScenePrompt, buildRetryPrompt, SCENE_SPEC_FILENAME } from '../claude/prompt.js';
+import { buildScenePrompt, buildRetryPrompt, OUTPUT_FILENAME } from '../claude/prompt.js';
+import { validateHtml } from '../export/validate-html.js';
 
 export interface AcpAgentOptions extends AcpSessionOptions {
-  /** SceneSpec 校验失败时的最大回灌重试次数（默认 2）。 */
+  /** HTML 校验失败时的最大回灌重试次数（默认 2）。 */
   maxRetries?: number;
 }
 
@@ -118,7 +118,8 @@ async function run(
       : resolve(process.cwd(), prompt.workingDir || '.');
   const cwd = join(baseDir, '.dsweave', backend.slug, `${sessionId}_${Date.now()}`);
   mkdirSync(cwd, { recursive: true });
-  const specPath = join(cwd, SCENE_SPEC_FILENAME);
+  const htmlPath = join(cwd, OUTPUT_FILENAME);
+  const knownNodeIds = new Set(context.knownNodeIds);
 
   const { command, args } = backend.resolveCommand(options);
   const session = new AcpSession({ ...options, command, args });
@@ -154,8 +155,8 @@ async function run(
         conn.requestPermission(sessionId, `${backend.label} 请求：${summary}`, ['允许', '拒绝']),
     };
 
-    // prompt turn + 校验回灌重试
-    let spec: SceneSpec | undefined;
+    // prompt turn + 文本校验回灌重试
+    let html: string | undefined;
     let promptText = text;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       if (isCancelled()) return finish(conn, sessionId, 'cancelled', session, cwd);
@@ -164,49 +165,35 @@ async function run(
       if (outcome.stopReason !== 'end_turn') {
         log(`${backend.label} turn 异常结束：${outcome.stopReason}`, 'warn');
       }
-      if (!existsSync(specPath)) {
+      if (!existsSync(htmlPath)) {
         if (attempt < maxRetries) {
-          log(`未发现 ${SCENE_SPEC_FILENAME}，回灌重试（${attempt + 1}/${maxRetries}）`, 'warn');
-          promptText = buildRetryPrompt(`未找到 ${SCENE_SPEC_FILENAME}`);
+          log(`未发现 ${OUTPUT_FILENAME}，回灌重试（${attempt + 1}/${maxRetries}）`, 'warn');
+          promptText = buildRetryPrompt(`未找到 ${OUTPUT_FILENAME}`);
           continue;
         }
         break;
       }
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(readFileSync(specPath, 'utf-8'));
-      } catch (e) {
-        if (attempt < maxRetries) {
-          promptText = buildRetryPrompt(`不是合法 JSON：${(e as Error).message}`);
-          continue;
-        }
+      const candidate = readFileSync(htmlPath, 'utf-8');
+      const errors = validateHtml(candidate, knownNodeIds);
+      if (errors.length === 0) {
+        html = candidate;
         break;
       }
-      const check = safeValidateSceneSpec(parsed);
-      if (check.success) {
-        spec = check.data as SceneSpec;
-        break;
-      }
-      const issue = check.error.issues[0];
-      const errMsg = `${issue?.path?.join('.') ?? ''}: ${issue?.message ?? '校验失败'}`;
-      log(`SceneSpec 校验失败：${errMsg}`, 'warn');
-      if (attempt < maxRetries) {
-        promptText = buildRetryPrompt(errMsg);
-      }
+      const msg = errors.join('；');
+      log(`HTML 校验失败：${msg}`, 'warn');
+      if (attempt < maxRetries) promptText = buildRetryPrompt(msg);
     }
 
-    if (!spec) {
+    if (!html) {
       conn.sessionUpdate(sessionId, {
         type: 'node-status',
         nodeId: outputNodeId,
         status: 'error',
-        message: 'SceneSpec 未产出/非法',
+        message: 'HTML 未产出/未通过校验',
       });
       return finish(conn, sessionId, 'error', session, cwd);
     }
-    log(
-      `SceneSpec 就绪：${spec.models.length} 模型 / ${spec.hotspots.length} 热点 / ${spec.panels.length} 面板`,
-    );
+    log(`HTML 就绪：${html.length} 字符`);
 
     // 交给 Host 能力出物
     conn.sessionUpdate(sessionId, {
@@ -216,7 +203,7 @@ async function run(
       state: 'running',
       nodeId: outputNodeId,
     });
-    const input: SceneHtmlInput = { spec };
+    const input: HtmlPageInput = { html };
     const res = await conn.invokeCapability({ sessionId, capability, outputNodeId, input });
     conn.sessionUpdate(sessionId, {
       type: 'tool-call',
