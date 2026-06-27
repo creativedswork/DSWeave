@@ -1,51 +1,38 @@
 /**
- * 把内部 PromptInput（图 + 理解 + 上下文 + 输出）编成给 Claude 的一段 ACP prompt 文本。
+ * 把内部 PromptInput（图 + 理解 + 上下文 + 输出）编成给编码 Agent 的一段 ACP prompt 文本。
  *
- * 约束 Claude 的唯一交付物：把一个符合 SceneSpec schema 的 JSON 写到 `<cwd>/scene.spec.json`，
- * 不写任何运行时代码（Player 已预构建）。文本里同时附一段机器可读的 <DSWEAVE_CONTEXT> JSON，
- * 列出可引用的 nodeId / 部件名 / 分块 id，避免模型臆造引用。
+ * 约束 Agent 的唯一交付物：把一个自包含的 HTML 写到 `<cwd>/index.html`——用 asset://{nodeId}
+ * 引用源文件、用 <model-viewer> 预览模型（运行时与资产字节由 Host 注入/内联）。文本里同时附一段
+ * 机器可读的 <DSWEAVE_CONTEXT> JSON，列出可引用的 nodeId 与文档真实文本。
  */
 import type { PromptInput } from '@dsweave/protocol';
 
-export const SCENE_SPEC_FILENAME = 'scene.spec.json';
+export const OUTPUT_FILENAME = 'index.html';
 
 /** 机器可读上下文（同时供真实模型与测试用的假 adapter 消费）。 */
-export interface ClaudeContext {
+export interface SceneContext {
   outputNodeId: string;
   outputTypeId: string;
   hint: string;
   models: { nodeId: string; label: string; parts: string[] }[];
   images: { nodeId: string; label: string }[];
-  docs: { nodeId: string; label: string; chunks: { id: string; preview: string }[] }[];
-  /** 节点间连线及其语义（驱动 connectors 的来源）。 */
+  docs: { nodeId: string; label: string; chunks: { id: string; text: string }[] }[];
   edges: { from: string; to: string; semantics: string }[];
+  /** 所有可被 asset:// 引用的节点 id（models ∪ images ∪ docs）。 */
+  knownNodeIds: string[];
 }
 
-const SCHEMA_DOC = `SceneSpec（写入 ${SCENE_SPEC_FILENAME} 的 JSON，字段如下）：
-{
-  "version": 1,
-  "theme": { "palette": string, "style": string },   // 如 palette:"dark"/"light"，style 自由描述
-  "layout": "single-focus" | "gallery",
-  "models": [ { "nodeId": string, "assetRef": string, "placement"?: {position?:[x,y,z],rotation?:[x,y,z],scale?:number}, "autoRotate"?: boolean } ],
-  "images": [ { "nodeId": string, "assetRef": string, "placement"?: {position?:[x,y,z],scale?:number}, "width"?: number, "label"?: string } ],
-  "hotspots": [ { "modelNodeId": string, "part": string, "title": string, "bodyChunkIds": string[] } ],
-  "panels": [ { "title": string, "chunkIds": string[] } ],
-  "connectors": [ { "fromNodeId": string, "toNodeId": string, "label"?: string, "style"?: "arrow"|"line" } ],
-  "citations": boolean
-}`;
-
 const RULES = `规则：
-1. 你唯一的交付物是把上面 schema 的 JSON 写入当前工作目录的 ${SCENE_SPEC_FILENAME}。不要写任何代码、不要创建其它文件。
-2. models[].nodeId 必须取自下方上下文块（DSWEAVE_CONTEXT）里的 models[].nodeId；images[].nodeId 取自 images[].nodeId；assetRef 直接用同一个 nodeId 即可。**上下文里出现的每个 model 和 image 都要放进场景，不要遗漏。**
-3. hotspots[].modelNodeId 取自 models[].nodeId；part 必须是该模型 parts[] 里的真实部件名。
-4. hotspots[].bodyChunkIds 与 panels[].chunkIds 必须取自 docs[].chunks[].id；不要臆造 id。
-5. **connectors 来自 edges**：当一条连线（edge）的语义在描述两个元素之间的关系（如"箭头从 A 指向 B"、"A 生成 B"），就产出一个 connector，fromNodeId/toNodeId 取自 edge 的 from/to，label 用语义里的关键词（如"生成"）。
-6. **布局**：用 placement.position（[x,y,z]，单位约等于模型尺寸）摆放元素以匹配连线语义（如"图片在左、模型在右"→ 图片 x 取负、模型 x 取正）；不确定时可省略 placement 交给默认并排布局。
-7. 结合用户的输出诉求（hint）决定 theme/layout 与文档绑定方式。
-8. 写完 ${SCENE_SPEC_FILENAME} 后用一句话确认即可。`;
+1. 你唯一的交付物是把一个完整、自包含的 HTML 写入当前工作目录的 ${OUTPUT_FILENAME}；不要创建其它文件。
+2. 要嵌入某个源文件（模型/图片），用占位 src：asset://{nodeId}，nodeId 取自下方上下文。Host 会把它替换为内联 data URI——不要自己写 base64，不要写真实路径。
+3. 预览 3D 模型：用 <model-viewer src="asset://{nodeId}" camera-controls auto-rotate style="width:100%;height:480px"></model-viewer>。运行时由 Host 注入，不要自己引入任何 <script src>。
+4. 禁止任何外链资源（http/https 的 script/link/字体/CDN）：产物必须离线双击可打开。样式写进 <style>，脚本写进内联 <script>。
+5. 充分按连线语义撰写文字：语义要求「生成一段不少于 N 字的说明」时，你必须真的写出 ≥N 字的中文正文放进 HTML，可参考下方 docs 的真实内容，但缺文档时要自行生成。
+6. 结合输出诉求（hint）决定整体风格/排版/配色。
+7. 写完 ${OUTPUT_FILENAME} 后用一句话确认即可。`;
 
 /** 从 PromptInput 抽取机器可读上下文。 */
-export function extractContext(prompt: PromptInput): ClaudeContext {
+export function extractContext(prompt: PromptInput): SceneContext {
   const graph = prompt.graph;
   const outputNode = graph.nodes.find((n) => n.kind === 'output');
   const models = graph.nodes
@@ -55,28 +42,26 @@ export function extractContext(prompt: PromptInput): ClaudeContext {
       label: n.label ?? n.id,
       parts: (n.understanding?.model?.nodes ?? []).map((p) => p.name).filter(Boolean),
     }));
-
   const images = graph.nodes
     .filter((n) => n.kind === 'source' && n.file?.type === 'image')
     .map((n) => ({ nodeId: n.id, label: n.label ?? n.file?.uri ?? n.id }));
-
   const docs = (prompt.context?.files ?? [])
     .map((f) => ({
       nodeId: f.nodeId,
       label: f.label ?? f.nodeId,
-      chunks: (f.chunks ?? []).map((c) => ({
-        id: c.id,
-        preview: c.text.replace(/\s+/g, ' ').slice(0, 120),
-      })),
+      chunks: (f.chunks ?? []).map((c) => ({ id: c.id, text: c.text })),
     }))
     .filter((d) => d.chunks.length > 0);
-
   const edges = graph.edges.map((e) => ({
     from: e.source,
     to: e.target,
     semantics: e.semantics ?? '',
   }));
-
+  const knownNodeIds = [
+    ...models.map((m) => m.nodeId),
+    ...images.map((i) => i.nodeId),
+    ...docs.map((d) => d.nodeId),
+  ];
   return {
     outputNodeId: outputNode?.id ?? 'out',
     outputTypeId: outputNode?.output?.typeId ?? 'scene.html',
@@ -85,26 +70,29 @@ export function extractContext(prompt: PromptInput): ClaudeContext {
     images,
     docs,
     edges,
+    knownNodeIds,
   };
 }
 
-/** 编出最终发给 Claude 的 prompt 文本。 */
-export function buildClaudePrompt(prompt: PromptInput): { text: string; context: ClaudeContext } {
+/** 编出最终发给编码 Agent 的 prompt 文本。 */
+export function buildScenePrompt(prompt: PromptInput): { text: string; context: SceneContext } {
   const context = extractContext(prompt);
   const graph = prompt.graph;
   const edgeLines = graph.edges
     .map((e) => `  - ${e.source} → ${e.target}${e.semantics ? `：${e.semantics}` : ''}`)
     .join('\n');
-
+  const styleHint =
+    context.outputTypeId === 'report.html'
+      ? '风格基调：偏 2D 知识报告（目录+正文+引用），但仍可用 <model-viewer> 预览模型。'
+      : '风格基调：偏 3D 沉浸（以 <model-viewer> 为主视觉），辅以文字说明。';
   const text = [
-    `你是 DSWeave 的场景编排 Agent。根据下面的工作流，产出一个 3D 沉浸式知识场景的 SceneSpec。`,
+    `你是 DSWeave 的产出 Agent。把下面的工作流编排成一个自包含的 ${OUTPUT_FILENAME}。`,
     ``,
     `工作流「${graph.name}」的连线意图：`,
     edgeLines || '  （无显式连线）',
     ``,
     `用户对输出（${context.outputTypeId}）的诉求：${context.hint || '（未指定，自行决定合理风格）'}`,
-    ``,
-    SCHEMA_DOC,
+    styleHint,
     ``,
     RULES,
     ``,
@@ -112,22 +100,14 @@ export function buildClaudePrompt(prompt: PromptInput): { text: string; context:
     JSON.stringify(context),
     `</DSWEAVE_CONTEXT>`,
   ].join('\n');
-
   return { text, context };
 }
 
-/**
- * 中立别名：SceneSpec prompt 与具体模型无关（Claude / Gemini 等任何编码 agent 共用），
- * 仅约束「把合法 scene.spec.json 写到 cwd、不写代码」。
- */
-export { buildClaudePrompt as buildScenePrompt };
-export type { ClaudeContext as SceneContext };
-
 /** 校验失败时的回灌追问。 */
-export function buildRetryPrompt(error: string): string {
+export function buildRetryPrompt(errors: string): string {
   return [
-    `${SCENE_SPEC_FILENAME} 校验未通过：`,
-    error,
-    `请修正后重新写入 ${SCENE_SPEC_FILENAME}（保持符合 schema、引用真实的 nodeId/part/chunkId）。`,
+    `${OUTPUT_FILENAME} 未通过校验：`,
+    errors,
+    `请修正后重新写入 ${OUTPUT_FILENAME}（保持自包含、无外链、asset:// 只引用上下文里的 nodeId）。`,
   ].join('\n');
 }
