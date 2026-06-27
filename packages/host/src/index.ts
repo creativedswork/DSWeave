@@ -9,11 +9,15 @@ import {
   inProcessSceneAgentConnector,
   inProcessMockConnector,
   inProcessClaudeAgentConnector,
+  inProcessGeminiAgentConnector,
   type AgentConnector,
 } from './agent-manager.js';
 
-/** 内置 Agent 类型：mock（占位）/ scene（启发式，M4a）/ claude（真实 LLM，M4b）。 */
-export type AgentKind = 'mock' | 'scene' | 'claude';
+/**
+ * 内置 Agent 类型：mock（占位）/ scene（启发式，M4a）/ claude（Claude Code，M4b）/
+ * gemini（Gemini CLI，官方 ACP）。claude 与 gemini 均经官方 ACP 接入，可热插拔。
+ */
+export type AgentKind = 'mock' | 'scene' | 'claude' | 'gemini';
 
 /** 按类型选择内置 Agent connector。 */
 export function connectorForKind(kind: AgentKind): AgentConnector {
@@ -22,6 +26,8 @@ export function connectorForKind(kind: AgentKind): AgentConnector {
       return inProcessMockConnector;
     case 'claude':
       return inProcessClaudeAgentConnector();
+    case 'gemini':
+      return inProcessGeminiAgentConnector();
     case 'scene':
     default:
       return inProcessSceneAgentConnector;
@@ -78,12 +84,17 @@ export {
   inProcessMockConnector,
   inProcessSceneAgentConnector,
   inProcessClaudeAgentConnector,
+  inProcessGeminiAgentConnector,
   spawnStdioConnector,
 } from './agent-manager.js';
 export { createClaudeAgent } from './claude/claude-agent.js';
 export type { ClaudeAgentOptions } from './claude/claude-agent.js';
-export { ClaudeAcpSession } from './claude/acp-client.js';
-export type { ClaudeAcpOptions } from './claude/acp-client.js';
+export { createGeminiAgent } from './gemini/gemini-agent.js';
+export type { GeminiAgentOptions } from './gemini/gemini-agent.js';
+export { createAcpAgent } from './acp/acp-agent.js';
+export type { AcpAgentOptions, AcpBackendSpec } from './acp/acp-agent.js';
+export { ClaudeAcpSession, AcpSession, defaultGeminiAdapterCommand } from './claude/acp-client.js';
+export type { ClaudeAcpOptions, AcpSessionOptions } from './claude/acp-client.js';
 export { bridge } from './bridge.js';
 export type { CapabilityInvoker } from './bridge.js';
 export { FsService, contentHash } from './fs-service.js';

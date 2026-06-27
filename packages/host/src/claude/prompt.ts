@@ -116,6 +116,13 @@ export function buildClaudePrompt(prompt: PromptInput): { text: string; context:
   return { text, context };
 }
 
+/**
+ * 中立别名：SceneSpec prompt 与具体模型无关（Claude / Gemini 等任何编码 agent 共用），
+ * 仅约束「把合法 scene.spec.json 写到 cwd、不写代码」。
+ */
+export { buildClaudePrompt as buildScenePrompt };
+export type { ClaudeContext as SceneContext };
+
 /** 校验失败时的回灌追问。 */
 export function buildRetryPrompt(error: string): string {
   return [

@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process';
 import { createMemoryTransportPair, type AcpTransport } from '@dsweave/protocol';
 import { createMockAgent, createSceneAgent, StdioTransport } from '@dsweave/agent';
 import { createClaudeAgent, type ClaudeAgentOptions } from './claude/claude-agent.js';
+import { createGeminiAgent, type GeminiAgentOptions } from './gemini/gemini-agent.js';
 
 export interface AgentEndpoint {
   /** Host 侧用于与 Agent 通信的传输。 */
@@ -47,6 +48,22 @@ export function inProcessClaudeAgentConnector(options: ClaudeAgentOptions = {}):
   return () => {
     const [hostSide, agentSide] = createMemoryTransportPair();
     const agent = createClaudeAgent(agentSide, options);
+    return {
+      transport: hostSide,
+      dispose: () => agent.close(),
+    };
+  };
+}
+
+/**
+ * Gemini 驱动的内部 Agent：进程内 AgentSideConnection，onPrompt 经官方 ACP 驱动
+ * `gemini --acp` 产出 SceneSpec → scene.html 能力。与 Claude 后端同构、可热插拔，
+ * 前端/内部协议/能力链路不变。
+ */
+export function inProcessGeminiAgentConnector(options: GeminiAgentOptions = {}): AgentConnector {
+  return () => {
+    const [hostSide, agentSide] = createMemoryTransportPair();
+    const agent = createGeminiAgent(agentSide, options);
     return {
       transport: hostSide,
       dispose: () => agent.close(),

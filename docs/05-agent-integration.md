@@ -4,6 +4,7 @@
 >
 > **接入路线（已更新）**：
 > - **M4**：通过 [`@agentclientprotocol/claude-agent-acp`](https://github.com/agentclientprotocol/claude-agent-acp) 接入 **Claude Code**（现成官方 ACP agent，走 stdio）。先把主竖切 + SceneSpec 链路跑通。
+> - **新增 ACP 后端 · Gemini CLI**：通过 Gemini CLI 原生的 [ACP 模式](https://geminicli.com/docs/cli/acp-mode/)（`gemini --acp`，同样说官方 ACP over stdio）接入。与 Claude 后端**完全同构、可热插拔**（`DSWEAVE_AGENT=gemini`），前端/内部协议/bridge/能力链路零改动。详见 §6。
 > - **M6**：把自有的 **dscode**（DeepSeek V4 Pro）作为**内置 agent** 接入（headless `AcpBackend`，不走 MCP）。后置。
 
 ---
@@ -16,6 +17,7 @@ Agent 始终是**可插拔**的：`web → Host(内部协议) → Agent(ACP over
 | --- | --- | --- | --- |
 | M2/M3 | Mock | 进程内 / stdio | 验证可插拔抽象、文件理解链路 |
 | **M4** | **Claude Code** | `claude-agent-acp`（外部 npm，stdio） | 不自研 agent 即可跑通真实竖切 + SceneSpec |
+| **+** | **Gemini CLI** | `gemini --acp`（外部 CLI，stdio，官方 ACP） | 第二个现成官方 ACP agent，证明「换后端=换命令」 |
 | M6 | dscode | 内置 headless `AcpBackend` | 自有引擎、DeepSeek、可深度定制 |
 
 > 先接 Claude Code 的理由：它是**现成、稳定的官方 ACP agent**，让我们把精力集中在「Player 渲染 + SceneSpec 契约 + scene.html 注入 + 产物交付」这条主竖切上，而不是同时调试一个新 agent 引擎。dscode 内置接入的设计已成熟（见 §4），但可后置到竖切验证之后。
@@ -99,7 +101,7 @@ Claude 是通用编码 agent,不天然"输出 SceneSpec"。两条路：
 - [x] **阶段 B 全链路（沙箱内，`pnpm m4b:smoke`）✅**：用「假 ACP Agent」替身（说官方 ACP）验证 Host 官方 ACP client + scene.spec.json 收口 + 校验 + `scene.html` 能力出物 + 权限翻译 + 产物缓存全通过，且 `bridge.ts`/内部协议/前端零改动。
 - [x] SceneSpec 校验失败可回灌重试直至合法（`claude-agent.ts` 内 `maxRetries`，错误经 `buildRetryPrompt` 回灌）。
 - [x] 切换 Mock ↔ scene ↔ Claude（`DSWEAVE_AGENT` / `agentKind`），DSWeave 前端零改代码。
-- [ ] **真模型竖切（操作者本机）**：`DSWEAVE_AGENT=claude pnpm dev:host` + `pnpm dev:web`，拖入 gltf+文档、写关系、选 `scene.html` → Claude 产出合法 `scene.spec.json` → Host 注入 → **自包含单文件 3D HTML**（需本机 Claude 登录态或 DeepSeek 网关；沙箱内不可联网实测）。
+- [x] **真模型竖切（操作者本机）✅**：`DSWEAVE_AGENT=claude pnpm dev:host` + `pnpm dev:web`，拖入 gltf+文档、写关系、选 `scene.html` → Claude 经官方 ACP 产出合法 `scene.spec.json` → Host 校验注入 → **自包含单文件 3D HTML**。操作者本机实测通过（本机 Claude 登录态 / DeepSeek 网关；沙箱内不可联网实测）。
 
 ---
 
@@ -167,7 +169,55 @@ graph LR
 | 风险 | 应对 |
 | --- | --- |
 | 内部协议 ↔ 官方 ACP 映射有缺口 | 先覆盖 prompt/update/permission 子集；bridge 单测；不支持的官方变体降级为日志 |
-| Claude 不稳定产出合法 SceneSpec | 强系统约束 + schema 回灌重试；备选 Client MCP `set_scene` 工具 |
-| 真 LLM 不可在沙箱实测 | M4a 启发式跑绿；Mock↔Claude 切换证明可插拔；真模型留运行时验收 |
-| Claude 自带 fs/bash/terminal 越权 | ACP permission 请求 → DSWeave 审批；`workingDir` 沙箱限定 workspace |
-| `claude-agent-acp` 版本演进 | 锁版本 + 关注 ACP SDK 兼容；Agent 可插拔，必要时回退 Mock |
+| Claude/Gemini 不稳定产出合法 SceneSpec | 强系统约束 + schema 回灌重试；备选 Client MCP `set_scene` 工具 |
+| 真 LLM 不可在沙箱实测 | M4a 启发式跑绿；Mock↔Claude↔Gemini 切换证明可插拔；真模型留运行时验收 |
+| Agent 自带 fs/bash/terminal 越权 | ACP permission 请求 → DSWeave 审批；`cwd` 沙箱限定 workspace |
+| `claude-agent-acp` / `gemini` 版本演进 | 锁版本 + 关注 ACP SDK 兼容；Agent 可插拔，必要时回退 Mock |
+
+---
+
+## 6. 新增 ACP 后端 · Gemini CLI（`gemini --acp`）
+
+### 6.1 结论：换后端 = 换一条 spawn 命令
+
+Gemini CLI **原生支持官方 ACP**（[ACP Mode](https://geminicli.com/docs/cli/acp-mode/)：`gemini --acp`，JSON-RPC 2.0 over stdio，`PROTOCOL_VERSION = 1`，含 `initialize` / `session/new` / `prompt` / `request_permission` / fs 代理）。这与 Claude Code（`claude-agent-acp`）说的是**同一套官方 ACP**。因此 §2.3 的关键决策一（「stdio 边界说官方 ACP，翻译收敛在一个内部 Agent」）天然复用——新增 Gemini 后端**不需要任何新的协议翻译**，只是把 spawn 的命令从 `npx -y @agentclientprotocol/claude-agent-acp` 换成 `gemini --acp`。
+
+```mermaid
+graph LR
+  H[DSWeave Host] -->|spawn: claude-agent-acp<br/>官方 ACP / stdio| C[Claude Code]
+  H -->|spawn: gemini --acp<br/>官方 ACP / stdio| G[Gemini CLI]
+  C -.write scene.spec.json.-> FS[(workspace)]
+  G -.write scene.spec.json.-> FS
+  H -->|turn 结束读取 + zod 校验 + 注入| P[R3F Player]
+```
+
+### 6.2 落地形态：抽出通用核心 + 两个薄后端
+
+为消除重复，把原 `claude-agent.ts` 的编排（编 prompt → 驱动 ACP → 读 `scene.spec.json` → 校验回灌重试 → `invokeCapability('scene.html')`）抽到**通用核心** `acp/acp-agent.ts`，由一个 `AcpBackendSpec`（`label` / `slug` / `resolveCommand`）特化。Claude 与 Gemini 各自只是一个**薄包装**：
+
+| 位置 | 改动 |
+| --- | --- |
+| `packages/host/src/acp/acp-agent.ts`（新增） | 通用「ACP 驱动的内部 Agent」核心：`createAcpAgent(transport, backend, options)`。承载全部编排，与具体模型无关。 |
+| `packages/host/src/claude/acp-client.ts` | 已有的 `ClaudeAcpSession`（adapter 命令可配）天生通用；新增中立别名 `AcpSession` / `AcpSessionOptions`，以及 `defaultGeminiAdapterCommand`（默认 `gemini --acp`，可经 `GEMINI_ACP_CMD` / `GEMINI_ACP_ARGS` 覆盖）。 |
+| `packages/host/src/claude/prompt.ts` | SceneSpec prompt 与模型无关；新增中立别名 `buildScenePrompt` / `SceneContext`，Claude 与 Gemini 共用。 |
+| `packages/host/src/claude/claude-agent.ts` | 改为通用核心的薄包装（`CLAUDE_BACKEND`）。行为不变。 |
+| `packages/host/src/gemini/gemini-agent.ts`（新增） | `createGeminiAgent`：通用核心的薄包装（`GEMINI_BACKEND`，`resolveCommand = defaultGeminiAdapterCommand`）。 |
+| `packages/host/src/agent-manager.ts` | 新增 `inProcessGeminiAgentConnector`（进程内 memory transport + `createGeminiAgent`）。 |
+| `packages/host/src/index.ts` / `main.ts` | `AgentKind` 增加 `'gemini'`；`connectorForKind('gemini')`；`DSWEAVE_AGENT=gemini` 选 Gemini。 |
+| `packages/host/src/gemini-probe.ts` / `gemini-smoke.ts`（新增） | 与 `m4b-probe` / `m4b-smoke` 同构的探针与沙箱烟测（烟测复用 agent 中立的 `claude/fake-adapter.js` 假替身）。 |
+| `bridge.ts` / 内部协议 / 前端 / `CapabilityRegistry` | **零改动**。 |
+
+### 6.3 cwd / 鉴权
+
+| 维度 | 机制 |
+| --- | --- |
+| **cwd** | 同 Claude：官方 ACP `session/new` 的 `cwd` → 指向 session workspace（`scene.spec.json` 落此），Gemini 的 fs 工具据此读写；Client 侧 `fs/read|write_text_file` 限定在 workspace（路径越界拒绝）。 |
+| **鉴权** | Host spawn 时透传 `process.env`，Gemini CLI 自行读取本机登录态 / `GEMINI_API_KEY` / `GOOGLE_API_KEY`（或 Vertex 凭据）。Host 不另造鉴权表面。 |
+| **adapter 覆盖** | `GEMINI_ACP_CMD` / `GEMINI_ACP_ARGS`（测试可指向假替身或自定义二进制）。 |
+
+### 6.4 验收
+
+- [x] **沙箱全链路**（`pnpm gemini:smoke`）：以 agent 中立的假 ACP 替身（说官方 ACP）跑通 Gemini 后端的官方 ACP client + `scene.spec.json` 收口 + zod 校验 + `scene.html` 能力出物 + 权限翻译 + 产物缓存，日志体现 `Gemini` 后端 label；`bridge.ts`/内部协议/前端零改动。
+- [x] 切换 Mock ↔ scene ↔ Claude ↔ **Gemini**（`DSWEAVE_AGENT` / `connectorForKind`），DSWeave 前端零改代码。
+- [ ] **阶段 A 探针**（`pnpm gemini:probe`）：Host 用官方 ACP SDK spawn `gemini --acp`，`spawn → initialize → session/new → session/prompt`（Gemini 经 fs 工具写哨兵文件）。需操作者本机已安装并登录 Gemini CLI（沙箱内不可联网实测，留运行时验收）。
+- [ ] **真模型竖切（操作者本机）**：`DSWEAVE_AGENT=gemini pnpm dev:host` + `pnpm dev:web`，拖入 gltf+文档 → Gemini 经官方 ACP 产出合法 `scene.spec.json` → Host 校验注入 → 自包含单文件 3D HTML。

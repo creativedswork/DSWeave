@@ -57,6 +57,20 @@ export function defaultAdapterCommand(opts: ClaudeAcpOptions = {}): { command: s
   return { command, args };
 }
 
+/**
+ * Gemini CLI 的 ACP adapter 默认启动方式：`gemini --acp`（stdio 上说官方 ACP）。
+ * 可经 GEMINI_ACP_CMD / GEMINI_ACP_ARGS 覆盖（测试可指向假替身）。
+ * 详见 https://geminicli.com/docs/cli/acp-mode/
+ */
+export function defaultGeminiAdapterCommand(opts: ClaudeAcpOptions = {}): {
+  command: string;
+  args: string[];
+} {
+  const command = opts.command ?? process.env.GEMINI_ACP_CMD ?? 'gemini';
+  const args = opts.args ?? (process.env.GEMINI_ACP_ARGS ?? '--acp').split(',');
+  return { command, args };
+}
+
 /** 一个 spawn 的官方 ACP Agent 会话。 */
 export class ClaudeAcpSession {
   private child?: ChildProcess;
@@ -173,3 +187,10 @@ export class ClaudeAcpSession {
     this.child = undefined;
   }
 }
+
+/**
+ * 中立别名：该 session 与具体 agent 无关（adapter 命令可配），既服务 Claude 也服务 Gemini
+ * 等任何「说官方 ACP 的子进程」。Claude/Gemini 各自的 agent 仅在构造时传入不同 command/args。
+ */
+export { ClaudeAcpSession as AcpSession };
+export type AcpSessionOptions = ClaudeAcpOptions;

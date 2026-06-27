@@ -119,7 +119,7 @@ node -v && pnpm -v
 >
 > **分两阶段（一条龙、分步可验，详见 [05-agent-integration.md](./05-agent-integration.md)）**：
 > - **M4a**（本仓、确定性、无 LLM）：Player 渲染 + `scene.html` 注入 + **启发式 SceneSpec agent** 走现有内部链路跑通竖切。
-> - **M4b**（接真实 Agent）：通过 [`@agentclientprotocol/claude-agent-acp`](https://github.com/agentclientprotocol/claude-agent-acp) 接入 **Claude Code**（官方 ACP/stdio）。Host 在 stdio 边界采用官方 `@agentclientprotocol/sdk`，bridge 做「内部协议 ↔ 官方 ACP」翻译；Claude 把 `scene.spec.json` 写到 workspace，Host 校验后注入 Player。真模型实跑需 `ANTHROPIC_API_KEY`。
+> - **M4b**（接真实 Agent）✅：通过 [`@agentclientprotocol/claude-agent-acp`](https://github.com/agentclientprotocol/claude-agent-acp) 接入 **Claude Code**（官方 ACP/stdio）。Host 在 stdio 边界采用官方 `@agentclientprotocol/sdk`，「内部协议 ↔ 官方 ACP」翻译收敛在**一个 Claude 驱动的内部 Agent**（`bridge.ts`/前端零改动）；Claude 把 `scene.spec.json` 写到 workspace，Host 校验后注入 Player。真模型实跑需 `ANTHROPIC_API_KEY` / Claude 登录态 / 兼容网关。
 > - **dscode 内置 agent 推迟到 M6**（见下）。
 
 `packages/core`：
@@ -143,24 +143,36 @@ node -v && pnpm -v
 - [x] 启发式 SceneSpec 生成器：基于 graph + understanding 直接产出合法 `SceneSpec`（无 LLM），约束**只产出 SceneSpec**，不写代码。
 - [x] 执行循环 + SceneSpec 校验/重试 + `request_permission` + `capability/invoke`。
 
-**M4b：接 Claude Code（`claude-agent-acp`）**（详见 [05-agent-integration.md](./05-agent-integration.md)）：
-- [ ] `packages/host` 新增官方 `@agentclientprotocol/sdk` 作为 stdio 边界 ACP client。
-- [ ] `agent-manager.ts`：`spawnStdioConnector` 指向 `npx -y @agentclientprotocol/claude-agent-acp`，透传 `ANTHROPIC_API_KEY` 与 `workingDir`。
-- [ ] `bridge.ts`：内部协议 ↔ 官方 ACP 翻译（prompt / update / permission 映射）。
-- [ ] SceneSpec 收口：系统指令约束「只写 `scene.spec.json`、不写代码」；turn 结束读取 + 校验 + 注入 Player；校验失败回灌重试。
-- [ ] 验证 Mock ↔ Claude Code 切换前端零改动；真模型实跑（需 `ANTHROPIC_API_KEY`）。
+**M4b：接 Claude Code（`claude-agent-acp`）✅ 已落地**（详见 [05-agent-integration.md](./05-agent-integration.md)）：
+- [x] `packages/host` 新增官方 `@agentclientprotocol/sdk` 作为 stdio 边界 ACP client（`claude/acp-client.ts` 用 `ClientSideConnection` + `ndJsonStream`）。
+- [x] spawn `npx -y @agentclientprotocol/claude-agent-acp`（命令可经 `CLAUDE_ACP_CMD`/`CLAUDE_ACP_ARGS` 覆盖），透传 `process.env`（含 `ANTHROPIC_API_KEY` / DeepSeek 网关）与 `cwd`（绝对路径 workspace）。
+- [x] **翻译收敛在「Claude 驱动的内部 Agent」**（`claude/claude-agent.ts`，实现与启发式 agent 相同的 `AgentSideConnection` 契约）：内部 prompt→官方 prompt turn、官方 `session/update`→内部 `SessionUpdate`、官方 permission→内部 `request_permission`；**`bridge.ts`/内部协议/前端零改动**。
+- [x] SceneSpec 收口：系统指令约束「只写 `scene.spec.json`、不写代码」；turn 结束读取 + zod 校验 + 注入 Player；校验失败经 `buildRetryPrompt` 回灌重试（`maxRetries`）。
+- [x] 验证 Mock ↔ scene ↔ Claude 切换前端零改动（`DSWEAVE_AGENT` / `connectorForKind`）；真模型竖切操作者本机实测通过（DeepSeek 网关 / Claude 登录态）。
+
+**新增 ACP 后端：Gemini CLI（`gemini --acp`）✅ 已落地**（详见 [05-agent-integration.md §6](./05-agent-integration.md)）：
+- [x] 抽出通用核心 `packages/host/src/acp/acp-agent.ts`（`createAcpAgent` + `AcpBackendSpec`），承载「编 prompt → 驱动官方 ACP → 读 `scene.spec.json` → 校验回灌重试 → `invokeCapability('scene.html')`」全部编排；Claude/Gemini 各自只是薄包装（仅 `label`/`slug`/`resolveCommand` 不同）。
+- [x] Gemini CLI 原生说官方 ACP（[ACP Mode](https://geminicli.com/docs/cli/acp-mode/)），故**无需新增协议翻译**——新增后端 = 把 spawn 命令从 `claude-agent-acp` 换成 `gemini --acp`（可经 `GEMINI_ACP_CMD`/`GEMINI_ACP_ARGS` 覆盖）。
+- [x] `packages/host/src/gemini/gemini-agent.ts`（`createGeminiAgent`）+ `inProcessGeminiAgentConnector` + `AgentKind` 增加 `'gemini'`（`DSWEAVE_AGENT=gemini`）；`bridge.ts`/内部协议/前端/`CapabilityRegistry` 零改动。
+- [x] 沙箱烟测 `pnpm gemini:smoke`（复用 agent 中立的假 ACP 替身）跑通除真模型外全部代码路径；探针 `pnpm gemini:probe`（真握手）留操作者本机验收。验证 Mock ↔ scene ↔ Claude ↔ Gemini 切换前端零改动。
 
 `packages/web`：
 - [x] `PermissionDialog` 审批弹窗（替代 M2 自动放行；`store.respondPermission`）。
 - [x] `ArtifactViewer`：3D HTML 用 iframe 预览（可旋转/漫游/点热点）+ 下载/新标签打开。
 - [x] 产物"提升"为新 `source` 节点。
 
-**验收**：拖入 `model.gltf + 若干文档`，边写"模型居中可旋转、把章节绑成部件热点"，输出 `scene.html` + 软细节，点 Start → Agent 产出 SceneSpec → 审批 → 产出**自包含单文件 3D HTML**（双击即看、可交互、带文档热点与来源引用）；二次运行命中缓存秒出。✅ **M4a** `pnpm m4:smoke` 端到端通过（无 LLM、无外网/key）。M4b（接 Claude Code）待真模型实跑。
+**验收**：拖入 `model.gltf + 若干文档`，边写"模型居中可旋转、把章节绑成部件热点"，输出 `scene.html` + 软细节，点 Start → Agent 产出 SceneSpec → 审批 → 产出**自包含单文件 3D HTML**（双击即看、可交互、带文档热点与来源引用）；二次运行命中缓存秒出。✅ **M4a** `pnpm m4:smoke` 端到端通过（无 LLM、无外网/key）。✅ **M4b** 沙箱 `pnpm m4b:smoke`（假 ACP 替身）+ 阶段 A 探针 `pnpm m4b:probe`（真模型握手）通过；真模型竖切 `DSWEAVE_AGENT=claude pnpm dev:host` 操作者本机实测通过。
 
 > 实现说明（M4a）：
 > - **产出链路**：启发式 `SceneAgent`（`packages/agent`）基于图 + understanding 产出合法 `SceneSpec` → `request_permission` 审批 → 新增协议方法 `capability/invoke` 调用 Host 的 `scene.html` 能力。Bridge 在 agent→host 方向拦截 `capability/invoke`（不转发前端），由 `CapabilityRegistry` 执行。
 > - **scene.html 能力**：`export/inject-player` 把 `SceneSpec + gltf 资产(data URI) + 文档片段` 注入预构建 Player 单文件 HTML（`window.__DSWEAVE_SCENE__/__ASSETS__/__CHUNKS__`），内容寻址落盘 `.dsweave/artifacts/<hash>/index.html`；Host 同进程 HTTP 服务 `/_artifacts/<hash>/...` 供前端 iframe 预览/下载。
 > - **可插拔**：默认 `inProcessSceneAgentConnector`；`inProcessMockConnector`（M2/M3）保留。M4b 仅需在 `spawnStdioConnector` 边界换上官方 `@agentclientprotocol/sdk` + Claude Code，前端与内部协议零改。
+>
+> 实现说明（M4b）：
+> - **落地形态**：未走「`spawnStdioConnector` 直连 claude-agent-acp + bridge 翻译」，而是新增 `inProcessClaudeAgentConnector`——进程内的 `AgentSideConnection`（`packages/host/src/claude/claude-agent.ts`），其 `onPrompt` 内部用官方 `@agentclientprotocol/sdk` 的 `ClientSideConnection` spawn `claude-agent-acp`（`claude/acp-client.ts`）。**翻译收敛在该内部 Agent 内**，对 `bridge.ts`/内部协议/前端零侵入，效果与原方案等价且更内聚。
+> - **SceneSpec 收口（§2.4 方案 A）**：`claude/prompt.ts` 把图+理解+上下文编成系统指令 + `SceneSpec` schema + 机器可读 `<DSWEAVE_CONTEXT>`，约束「只写 `scene.spec.json`、不写代码」；turn 结束读 `<cwd>/scene.spec.json` → zod 校验 → 失败回灌重试 → `invokeCapability('scene.html')` 复用同一能力出物。
+> - **鉴权/沙箱**：spawn 透传 `process.env`（`ANTHROPIC_API_KEY` / Claude 登录态 / DeepSeek 网关三选一）；Client 侧 `fs/read|write_text_file` 与 `requestPermission` 限定在 session workspace（路径越界拒绝），权限请求经内部 `request_permission` 走前端 `PermissionDialog`。
+> - **验证**：沙箱内 `pnpm m4b:smoke`（`fake-adapter.ts` 假 ACP 替身）跑通除真模型外全部代码路径；`pnpm m4b:probe` 真模型握手 + 写文件 turn 通过；真模型竖切操作者本机 `DSWEAVE_AGENT=claude` 实测通过。
 
 ---
 
@@ -195,6 +207,9 @@ node -v && pnpm -v
 packages/core/src/        model.ts schema.ts ir.ts index.ts
 packages/protocol/src/    transport.ts encode.ts decode.ts client.ts index.ts
 packages/host/src/        server.ts bridge.ts agent-manager.ts fs-service.ts
+                          acp/acp-agent.ts                        # 通用「ACP 驱动的内部 Agent」核心（Claude/Gemini 共用）
+                          claude/{acp-client,prompt,claude-agent,fake-adapter}.ts  # 官方 ACP session/prompt（通用）+ Claude 薄包装
+                          gemini/gemini-agent.ts                  # Gemini 薄包装（gemini --acp）
                           understanding/{registry,gltf,md,txt,pdf,html,data,image}.ts
                           context/{chunker,summarize,retrieve,builder}.ts
                           capabilities/{registry,output-types,scene-html,gltf-render,fs}.ts
