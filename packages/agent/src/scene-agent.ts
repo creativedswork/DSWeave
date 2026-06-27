@@ -13,10 +13,9 @@ import {
   type NewSessionResult,
   type PromptParams,
   type PromptResult,
-  type SceneHtmlInput,
+  type HtmlPageInput,
 } from '@dsweave/protocol';
-import { safeValidateSceneSpec } from '@dsweave/core';
-import { buildSceneSpec } from './scene-builder.js';
+import { buildHtml } from './html-builder.js';
 import { capabilityForOutput } from './tools/index.js';
 
 function sleep(ms: number): Promise<void> {
@@ -86,24 +85,13 @@ async function run(
 
     conn.sessionUpdate(sessionId, { type: 'node-status', nodeId: node.id, status: 'running' });
 
-    // 产出 SceneSpec（启发式），自校验 + 一次重试（确定性下应一次通过）。
-    let spec = buildSceneSpec(graph, node.output?.spec ?? '');
-    let check = safeValidateSceneSpec(spec);
-    if (!check.success) {
-      log(`SceneSpec 校验失败，重试：${check.error.issues[0]?.message ?? ''}`, 'warn');
-      spec = buildSceneSpec(graph, '');
-      check = safeValidateSceneSpec(spec);
-      if (!check.success) {
-        conn.sessionUpdate(sessionId, { type: 'node-status', nodeId: node.id, status: 'error', message: 'SceneSpec 非法' });
-        return finish(conn, sessionId, 'error');
-      }
-    }
-    log(`SceneSpec 就绪：${spec.models.length} 模型 / ${spec.hotspots.length} 热点 / ${spec.panels.length} 面板`);
+    const html = buildHtml(graph, node.output?.spec ?? '');
+    log(`HTML 就绪：${html.length} 字符`);
 
     // 审批：写入产物属危险操作。
     const allowed = await conn.requestPermission(
       sessionId,
-      `产出 ${typeId}：把 SceneSpec 注入 Player 并写入产物文件`,
+      `产出 ${typeId}：把 HTML 注入运行时并写入产物文件`,
       ['允许', '拒绝'],
     );
     if (!allowed) {
@@ -114,7 +102,7 @@ async function run(
 
     conn.sessionUpdate(sessionId, { type: 'tool-call', id: toolId, title: `${capability}`, state: 'running', nodeId: node.id });
     try {
-      const input: SceneHtmlInput = { spec };
+      const input: HtmlPageInput = { html };
       const res = await conn.invokeCapability({ sessionId, capability, outputNodeId: node.id, input });
       conn.sessionUpdate(sessionId, { type: 'tool-call', id: toolId, title: `${capability}`, state: 'done', nodeId: node.id });
       conn.sessionUpdate(sessionId, {

@@ -22,6 +22,7 @@
     "m4b:smoke": "pnpm --filter @dsweave/player build && pnpm --filter @dsweave/host build && node packages/host/dist/m4b-smoke.js",
     "gemini:probe": "pnpm --filter @dsweave/host build && node packages/host/dist/gemini-probe.js",
     "gemini:smoke": "pnpm --filter @dsweave/player build && pnpm --filter @dsweave/host build && node packages/host/dist/gemini-smoke.js",
+    "freeform:smoke": "pnpm --filter @dsweave/host build && node packages/host/dist/freeform-smoke.js",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

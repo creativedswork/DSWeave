@@ -1,9 +1,9 @@
 /**
  * 测试用「假 ACP Agent」：说官方 ACP（@agentclientprotocol/sdk 的 AgentSideConnection），
  * 行为模拟 Claude——收到 prompt 后解析其中的 <DSWEAVE_CONTEXT>，请求一次写权限，
- * 把一个合法 SceneSpec 写到 cwd/scene.spec.json，并返回 end_turn。
+ * 把一个自包含 HTML 写到 cwd/index.html，并返回 end_turn。
  *
- * 用途：让 m4b 烟测在沙箱内验证 Stage B 的「官方 ACP client + bridge + scene.spec.json 收口
+ * 用途：让烟测在沙箱内验证 Stage B 的「官方 ACP client + bridge + index.html 收口
  * + 能力出物 + 权限流」全链路，而无需真实模型 / 余额 / 外网。
  * 运行方式：由 inProcessClaudeAgentConnector 经 CLAUDE_ACP_CMD=node CLAUDE_ACP_ARGS=<此文件> spawn。
  */
@@ -31,7 +31,7 @@ interface CtxModel {
 interface CtxDoc {
   nodeId: string;
   label: string;
-  chunks: { id: string; preview: string }[];
+  chunks: { id: string; text: string }[];
 }
 interface CtxImage {
   nodeId: string;
@@ -61,29 +61,17 @@ function parseContext(text: string): Ctx {
   }
 }
 
-function buildSpec(ctx: Ctx): unknown {
+function buildHtml(ctx: Ctx): string {
   const model = ctx.models[0];
-  const doc = ctx.docs[0];
-  const imgs = ctx.images ?? [];
-  const img = imgs[0];
-  // 由连线语义取一个连接标注（模拟 LLM 从 edges 派生 connector）。
-  const semantic = (ctx.edges ?? []).map((e) => e.semantics).find((s) => /生成|箭头|→|指向/.test(s));
-  const label = semantic ? (semantic.match(/生成/) ? '生成' : semantic.slice(0, 6)) : '关联';
-
-  return {
-    version: 1,
-    theme: { palette: 'dark', style: 'minimal' },
-    layout: imgs.length + (model ? 1 : 0) > 1 ? 'gallery' : 'single-focus',
-    models: model ? [{ nodeId: model.nodeId, assetRef: model.nodeId, autoRotate: true, placement: { position: [2, 0, 0] } }] : [],
-    images: img ? [{ nodeId: img.nodeId, assetRef: img.nodeId, label: img.label, placement: { position: [-2, 0, 0] } }] : [],
-    hotspots:
-      model && model.parts[0] && doc && doc.chunks[0]
-        ? [{ modelNodeId: model.nodeId, part: model.parts[0], title: '部件说明', bodyChunkIds: [doc.chunks[0].id] }]
-        : [],
-    panels: doc ? [{ title: doc.label, chunkIds: doc.chunks.map((c) => c.id) }] : [],
-    connectors: img && model ? [{ fromNodeId: img.nodeId, toNodeId: model.nodeId, label, style: 'arrow' }] : [],
-    citations: true,
-  };
+  const img = (ctx.images ?? [])[0];
+  const sem = (ctx.edges ?? []).map((e) => e.semantics).filter(Boolean).join('；');
+  let body = `这是模型的说明文字。${sem ? `连线意图：${sem}。` : ''}`;
+  while (body.length < 520) body += `本说明用于验证 Agent 自撰长文能够进入最终产物。`;
+  const viewer = model
+    ? `<model-viewer src="asset://${model.nodeId}" camera-controls auto-rotate style="width:100%;height:480px"></model-viewer>`
+    : '';
+  const image = img ? `<img src="asset://${img.nodeId}" style="max-width:100%">` : '';
+  return `<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>fake</title></head><body>${viewer}${image}<section><p>${body}</p></section></body></html>`;
 }
 
 const stream = ndJsonStream(
@@ -115,13 +103,13 @@ new AgentSideConnection((conn): Agent => {
 
       await conn.sessionUpdate({
         sessionId: p.sessionId,
-        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '正在根据上下文生成 scene.spec.json…\n' } },
+        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '正在根据上下文生成 index.html…\n' } },
       });
 
       // 请求写权限（模拟 Claude 写文件前的授权）
       await conn.requestPermission({
         sessionId: p.sessionId,
-        toolCall: { toolCallId: 'write_1', title: '写入 scene.spec.json', kind: 'edit', status: 'pending' },
+        toolCall: { toolCallId: 'write_1', title: '写入 index.html', kind: 'edit', status: 'pending' },
         options: [
           { kind: 'allow_once', name: '允许', optionId: 'allow' },
           { kind: 'reject_once', name: '拒绝', optionId: 'reject' },
@@ -130,14 +118,14 @@ new AgentSideConnection((conn): Agent => {
 
       await conn.sessionUpdate({
         sessionId: p.sessionId,
-        update: { sessionUpdate: 'tool_call', toolCallId: 'write_1', title: 'Write scene.spec.json', kind: 'edit', status: 'completed' },
+        update: { sessionUpdate: 'tool_call', toolCallId: 'write_1', title: 'Write index.html', kind: 'edit', status: 'completed' },
       });
 
-      writeFileSync(join(process.cwd(), 'scene.spec.json'), JSON.stringify(buildSpec(ctx), null, 2), 'utf-8');
+      writeFileSync(join(process.cwd(), 'index.html'), buildHtml(ctx), 'utf-8');
 
       await conn.sessionUpdate({
         sessionId: p.sessionId,
-        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '已写出 scene.spec.json。\n' } },
+        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '已写出 index.html。\n' } },
       });
 
       return { stopReason: 'end_turn' };
