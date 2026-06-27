@@ -5,6 +5,7 @@ import { isOutputData } from '../types';
 import { useDSWeaveStore } from '../store/useDSWeaveStore';
 import { VISIBLE_OUTPUT_TYPES, getOutputType } from '../lib/outputs';
 import { statusRing } from '../lib/status';
+import { ComposableTextarea } from '../components/ComposableTextarea';
 
 export function OutputNode({ id, data, selected }: NodeProps<DSNode>) {
   const updateOutput = useDSWeaveStore((s) => s.updateOutput);
@@ -50,9 +51,9 @@ export function OutputNode({ id, data, selected }: NodeProps<DSNode>) {
       <label className="mb-1 block text-[10px] uppercase tracking-wide text-neutral-500">
         软细节（自然语言）
       </label>
-      <textarea
+      <ComposableTextarea
         value={data.output.spec}
-        onChange={(e) => updateOutput(id, { spec: e.target.value })}
+        onValueChange={(spec) => updateOutput(id, { spec })}
         placeholder={def.specPlaceholder}
         rows={3}
         className="nodrag w-full resize-none rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-[11px] leading-snug text-neutral-100 outline-none placeholder:text-neutral-600 focus:border-fuchsia-500"

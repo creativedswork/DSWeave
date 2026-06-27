@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useDSWeaveStore } from '../store/useDSWeaveStore';
+import { ComposableTextarea } from '../components/ComposableTextarea';
 
 export function EdgeEditor() {
   const editingEdgeId = useDSWeaveStore((s) => s.editingEdgeId);
@@ -66,10 +67,10 @@ export function EdgeEditor() {
       <label className="mb-1 block text-[10px] uppercase tracking-wide text-neutral-500">
         语义（这条连线代表什么关系 / 操作）
       </label>
-      <textarea
+      <ComposableTextarea
         autoFocus
         value={edge.data?.semantics ?? ''}
-        onChange={(e) => updateEdgeData(edge.id, { semantics: e.target.value })}
+        onValueChange={(semantics) => updateEdgeData(edge.id, { semantics })}
         placeholder="例：把这份文档作为该模型部件的解说内容"
         rows={3}
         className="mb-3 w-full resize-none rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs text-neutral-100 outline-none placeholder:text-neutral-600 focus:border-sky-500"
@@ -78,9 +79,9 @@ export function EdgeEditor() {
       <label className="mb-1 block text-[10px] uppercase tracking-wide text-neutral-500">
         参数（可选 · JSON）
       </label>
-      <textarea
+      <ComposableTextarea
         value={paramsText}
-        onChange={(e) => commitParams(e.target.value)}
+        onValueChange={commitParams}
         placeholder='例：{ "weight": 0.8 }'
         rows={3}
         className={`mb-1 w-full resize-none rounded-md border bg-neutral-900 px-2 py-1.5 font-mono text-[11px] text-neutral-100 outline-none placeholder:text-neutral-600 ${
