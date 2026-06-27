@@ -43,7 +43,8 @@ export function inlineAssets(
 
 /** 把运行时脚本注入到 <head>（缺省退化到 <body> 前或开头）。 */
 export function injectViewerRuntime(html: string, runtime: string): string {
-  const tag = `<script>${runtime}</script>`;
+  const safe = runtime.replace(/<\/script>/gi, '<\\/script>');
+  const tag = `<script>${safe}</script>`;
   const headEnd = html.indexOf('</head>');
   if (headEnd !== -1) return html.slice(0, headEnd) + tag + html.slice(headEnd);
   const bodyStart = html.indexOf('<body');

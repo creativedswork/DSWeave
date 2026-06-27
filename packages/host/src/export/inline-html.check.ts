@@ -38,4 +38,11 @@ import { inlineAssets, injectViewerRuntime } from './inline-html.js';
   assert.ok(out.includes('<script>RT</script>'), '无 head 也应注入');
 }
 
+// 5) runtime 中的 </script> 被转义，避免提前闭合
+{
+  const out = injectViewerRuntime('<head></head>', 'a</script>b');
+  assert.ok(!out.includes('a</script>b'), '原始 </script> 不应原样出现');
+  assert.ok(out.includes('a<\\/script>b'), '</script> 应被转义为 <\\/script>');
+}
+
 console.log('✓ inline-html.check 通过');
