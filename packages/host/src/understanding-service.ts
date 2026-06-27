@@ -8,11 +8,18 @@
 import type { Understanding } from '@dsweave/core';
 import type { RegisterFileParams, RegisterFileResult, UnderstandingNotification } from '@dsweave/protocol';
 import { FsService, type StoredFile } from './fs-service.js';
-import type { ChunkInfo } from './capabilities/scene-html.js';
 import type { ProviderRegistry, UnderstandIO } from './understanding/registry.js';
 import { createDefaultRegistry } from './understanding/index.js';
 import { chunkText } from './context/chunker.js';
 import { summarizeChunks } from './context/summarize.js';
+
+/** chunkIndex 返回的文档片段（来源可追溯）。 */
+export interface ChunkInfo {
+  text: string;
+  loc?: string;
+  nodeId: string;
+  label?: string;
+}
 
 export type UnderstandingReadyCallback = (note: UnderstandingNotification) => void;
 

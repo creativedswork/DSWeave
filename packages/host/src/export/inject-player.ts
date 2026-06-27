@@ -5,7 +5,7 @@
  * 让运行时读取注入契约。「会出错的代码」在构建期已固化，产物保证可运行。
  */
 import type { SceneSpec } from '@dsweave/core';
-import type { ChunkInfo } from '../capabilities/scene-html.js';
+import type { ChunkInfo } from '../understanding-service.js';
 
 export interface PlayerPayload {
   spec: SceneSpec;

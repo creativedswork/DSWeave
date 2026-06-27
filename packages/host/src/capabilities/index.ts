@@ -4,7 +4,7 @@ import { sceneHtmlCapability } from './scene-html.js';
 export { CapabilityRegistry } from './registry.js';
 export type { Capability, CapabilityInvocation, CapabilityRuntime } from './registry.js';
 export { sceneHtmlCapability } from './scene-html.js';
-export type { ChunkInfo } from './scene-html.js';
+export type { ChunkInfo } from '../understanding-service.js';
 export {
   OUTPUT_TYPES,
   capabilityForOutput,
