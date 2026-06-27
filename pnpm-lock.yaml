@@ -63,6 +63,9 @@ importers:
       '@dsweave/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@google/model-viewer':
+        specifier: ^4.3.1
+        version: 4.3.1(three@0.183.2)
       ws:
         specifier: ^8.18.0
         version: 8.21.0

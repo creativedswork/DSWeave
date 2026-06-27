@@ -11,17 +11,20 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -b",
     "clean": "tsc -b --clean",
     "dev": "tsx watch src/main.ts"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^0.29.0",
+    "@dsweave/agent": "workspace:*",
     "@dsweave/core": "workspace:*",
     "@dsweave/protocol": "workspace:*",
-    "@dsweave/agent": "workspace:*",
-    "@agentclientprotocol/sdk": "^0.29.0",
+    "@google/model-viewer": "^4.3.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {
