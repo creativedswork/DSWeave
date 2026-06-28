@@ -26,18 +26,18 @@ DSWeave 把渲染交还给 Agent，让产物天然离线自包含：
 
 ---
 
-## 视觉词汇表（SceneSpec 能表达什么）
+## Agent 能表达什么
 
-| 原语 | 含义 | 来源文件 |
+产物是 Agent 自由撰写的 HTML，因此表达力由 Agent + 上下文决定，而非固定 schema。Host 提供这些可靠的底座能力：
+
+| 能力 | 含义 | 来源文件 |
 | --- | --- | --- |
-| `models` | 3D 模型（可旋转、自动归一化居中） | `.gltf` `.glb` |
-| `images` | 贴图平面（按真实宽高比） | `.png` `.jpg` `.webp` |
-| `hotspots` | 绑定到模型**部件**的可点热点 → 弹出文档片段 | 由文档分块驱动 |
-| `panels` | 文档侧栏/浮窗 | `.md` `.pdf` `.txt` `.html` |
-| `connectors` | 元素之间的**有向箭头 + 标注**（如「生成」） | 由连线语义驱动 |
-| `theme` / `layout` | 配色与并排/聚焦布局 | 由输出诉求驱动 |
+| 3D 模型预览 | `<model-viewer asset://{nodeId}>`（可旋转、相机控制），运行时由 Host 注入 | `.gltf` `.glb` |
+| 图片内联 | `<img asset://{nodeId}>`，Host 内联为 data URI | `.png` `.jpg` `.webp` |
+| 文档正文 | Agent 按连线语义撰写文字（可参考文档真实分块） | `.md` `.pdf` `.txt` `.html` |
+| 风格 / 排版 | 配色、布局、交互由 Agent 依输出诉求与连线语义自行决定 | 由连线语义 + 输出诉求驱动 |
 
-> 词汇表是**平台能力、可一次性扩展**：新增一类视觉元素 = 给 `SceneSpec` 加一个原语 + 给 Player 加一个渲染零件，之后所有工作流都能让 Agent 自主组合使用。
+> Host 只负责 LLM 物理上做不到的兜底：注入 model-viewer 运行时、把 `asset://` 引用内联为字节。其余的结构、文字、风格全部交给 Agent 自由发挥——无需扩展任何数据 schema。
 
 ---
 
@@ -66,14 +66,14 @@ DSWeave 把渲染交还给 Agent，让产物天然离线自包含：
 
 ## 可插拔 Agent（基于 ACP）
 
-[ACP（Agent Client Protocol）](https://agentclientprotocol.com) 是 Agent 与编辑器之间的**通用开放协议**，并非 Claude 独有。DSWeave 的 Host 作为 ACP Client，任何遵循 ACP 的 Agent 都能经 stdio 接入——你完全可以**接入自定义 Agent**（只需实现 ACP 的 `initialize` / `session/new` / `session/prompt`，并通过 `fs/write_text_file` 产出 `scene.spec.json`），前端与协议/能力链路零改动。
+[ACP（Agent Client Protocol）](https://agentclientprotocol.com) 是 Agent 与编辑器之间的**通用开放协议**，并非 Claude 独有。DSWeave 的 Host 作为 ACP Client，任何遵循 ACP 的 Agent 都能经 stdio 接入——你完全可以**接入自定义 Agent**（只需实现 ACP 的 `initialize` / `session/new` / `session/prompt`，并通过 `fs/write_text_file` 产出自包含的 `index.html`），前端与协议/能力链路零改动。
 
 通过 `DSWEAVE_AGENT` 选择内置 Agent：
 
 | 值 | Agent | 说明 |
 | --- | --- | --- |
-| `scene`（默认） | 启发式 SceneSpec Agent | 确定性、无 LLM、无外网；用于打通与验证主链路 |
-| `claude` | Claude Code | 经官方 ACP 适配器（`@agentclientprotocol/claude-agent-acp`）spawn 真实 LLM；产出 `scene.spec.json` 后由 Host 读取校验、失败回灌重试 |
+| `scene`（默认） | 启发式 HTML Agent | 确定性、无 LLM、无外网；用于打通与验证主链路 |
+| `claude` | Claude Code | 经官方 ACP 适配器（`@agentclientprotocol/claude-agent-acp`）spawn 真实 LLM；产出 `index.html` 后由 Host 读取校验、失败回灌重试 |
 | `mock` | 占位 Agent | 早期状态流验证 |
 
 > 接入自定义 Agent：实现一个 ACP Agent（可参考 `@dsweave/agent`），用 ACP adapter 经 stdio 暴露，即可作为新的 `DSWEAVE_AGENT` 接入。

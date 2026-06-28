@@ -18,7 +18,10 @@ export interface SceneContext {
   images: { nodeId: string; label: string }[];
   docs: { nodeId: string; label: string; chunks: { id: string; text: string }[] }[];
   edges: { from: string; to: string; semantics: string }[];
-  /** 所有可被 asset:// 引用的节点 id（models ∪ images ∪ docs）。 */
+  /**
+   * 可被 asset:// 内联引用的节点 id（仅 models ∪ images——只有它们有可内联的字节）。
+   * docs 仅作文本参考，不进白名单：这样 validateHtml 能拦下 asset://docNodeId 并触发重写。
+   */
   knownNodeIds: string[];
 }
 
@@ -57,11 +60,7 @@ export function extractContext(prompt: PromptInput): SceneContext {
     to: e.target,
     semantics: e.semantics ?? '',
   }));
-  const knownNodeIds = [
-    ...models.map((m) => m.nodeId),
-    ...images.map((i) => i.nodeId),
-    ...docs.map((d) => d.nodeId),
-  ];
+  const knownNodeIds = [...models.map((m) => m.nodeId), ...images.map((i) => i.nodeId)];
   return {
     outputNodeId: outputNode?.id ?? 'out',
     outputTypeId: outputNode?.output?.typeId ?? 'scene.html',
