@@ -12,7 +12,7 @@
  * 流程：编 prompt → spawn ACP adapter → prompt turn（流式 update/permission 透传前端）
  *   → 读 <cwd>/index.html → 文本校验（失败回灌重试）→ invokeCapability('scene.html') → 产物。
  */
-import { mkdirSync, existsSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync, rmSync, cpSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import {
   AgentSideConnection,
@@ -42,6 +42,12 @@ export interface AcpBackendSpec {
   slug: string;
   /** 把后端选项解析为最终的 adapter 启动命令（默认命令 + 环境变量覆盖）。 */
   resolveCommand: (opts: AcpSessionOptions) => { command: string; args: string[] };
+  /**
+   * 该后端在 cwd 内发现 skills 的相对目录（各家约定不同，不可写死）。
+   * Claude → `.claude/skills`；Gemini/Antigravity → `.agents/skills`。
+   * 激活的 skill 会被物化进 `cwd/<skillsDir>/<id>/`，供 agent 原生发现 + 渐进披露。
+   */
+  skillsDir: string;
 }
 
 let sessionSeq = 0;
@@ -120,6 +126,25 @@ async function run(
   mkdirSync(cwd, { recursive: true });
   const htmlPath = join(cwd, OUTPUT_FILENAME);
   const knownNodeIds = new Set(context.knownNodeIds);
+
+  // 接缝②：把激活的 skill 整目录物化进 cwd/<backend.skillsDir>/<id>/（在 session.init 之前），
+  // 复用真实编码 agent 的原生发现 + 渐进披露（启动只读 frontmatter 建 catalog，触发时才读全文）。
+  const activeSkills = prompt.skills ?? [];
+  if (activeSkills.length) {
+    const skillsRoot = join(cwd, backend.skillsDir);
+    let materialized = 0;
+    for (const skill of activeSkills) {
+      try {
+        cpSync(skill.dir, join(skillsRoot, skill.id), { recursive: true });
+        materialized++;
+      } catch {
+        // 单个 skill 物化失败不影响其它
+      }
+    }
+    if (materialized) {
+      log(`已装配 ${materialized} 个 skill 进 ${backend.skillsDir}（${backend.label} 原生发现）`);
+    }
+  }
 
   const { command, args } = backend.resolveCommand(options);
   const session = new AcpSession({ ...options, command, args });

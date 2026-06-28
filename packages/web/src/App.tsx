@@ -7,6 +7,7 @@ import { ExecutionPanel } from './panels/ExecutionPanel';
 import { LogTimeline } from './panels/LogTimeline';
 import { PermissionDialog } from './panels/PermissionDialog';
 import { ArtifactViewer } from './panels/ArtifactViewer';
+import { SkillsDrawer } from './panels/SkillsDrawer';
 
 export function App() {
   return (
@@ -24,6 +25,7 @@ export function App() {
         <LogTimeline />
         <PermissionDialog />
         <ArtifactViewer />
+        <SkillsDrawer />
       </div>
     </ReactFlowProvider>
   );

@@ -20,6 +20,8 @@ const CLAUDE_BACKEND: AcpBackendSpec = {
   label: 'Claude',
   slug: 'claude',
   resolveCommand: (opts) => defaultAdapterCommand(opts),
+  // Claude Agent SDK 默认扫 cwd/.claude/skills/（省略 settingSources 时加载 user+project）。
+  skillsDir: '.claude/skills',
 };
 
 /** 创建一个 Claude 驱动的内部 Agent 连接。 */

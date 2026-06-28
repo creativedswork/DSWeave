@@ -18,6 +18,7 @@
     "m3:smoke": "pnpm --filter @dsweave/host build && node packages/host/dist/m3-smoke.js",
     "m4b:probe": "pnpm --filter @dsweave/host build && node packages/host/dist/m4b-probe.js",
     "skills:probe": "pnpm --filter @dsweave/host build && node packages/host/dist/skills-probe.js",
+    "skills:smoke": "pnpm --filter @dsweave/host build && node packages/host/dist/skills-smoke.js",
     "gemini:probe": "pnpm --filter @dsweave/host build && node packages/host/dist/gemini-probe.js",
     "freeform:smoke": "pnpm --filter @dsweave/host build && node packages/host/dist/freeform-smoke.js",
     "lint": "eslint .",

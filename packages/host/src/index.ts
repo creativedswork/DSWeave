@@ -121,5 +121,17 @@ export {
 } from './understanding/index.js';
 export type { UnderstandingProvider, UnderstandIO } from './understanding/index.js';
 export { chunkText, summarizeChunks, buildContext } from './context/index.js';
+export {
+  SkillsService,
+  discoverSkills,
+  scanScope,
+  readSkillDir,
+  parseFrontmatter,
+} from './skills/index.js';
+export type {
+  SkillsServiceOptions,
+  DiscoveredSkill,
+  SkillRoots,
+} from './skills/index.js';
 export type { AgentConnector, AgentEndpoint } from './agent-manager.js';
 export type { RunningServer, ServerOptions } from './server.js';

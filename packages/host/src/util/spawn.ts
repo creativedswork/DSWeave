@@ -9,7 +9,13 @@
  * 启用 shell 后，命令行由我们自己拼接，含空格 / 特殊字符的参数（如带空格的文件路径）
  * 需要加引号，这里统一处理，避免 PowerShell / cmd.exe 解析错位。
  */
-import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import {
+  spawn,
+  spawnSync,
+  type ChildProcess,
+  type SpawnOptions,
+  type SpawnSyncOptions,
+} from 'node:child_process';
 
 const isWindows = process.platform === 'win32';
 
@@ -31,6 +37,19 @@ export function spawnCross(
 ): ChildProcess {
   if (!isWindows) return spawn(command, args, options);
   return spawn(quoteForWindows(command), args.map(quoteForWindows), {
+    ...options,
+    shell: true,
+  });
+}
+
+/** 跨平台同步 spawn（供 git clone 等需阻塞等待退出码的场景）。 */
+export function spawnCrossSync(
+  command: string,
+  args: string[] = [],
+  options: SpawnSyncOptions = {},
+) {
+  if (!isWindows) return spawnSync(command, args, options);
+  return spawnSync(quoteForWindows(command), args.map(quoteForWindows), {
     ...options,
     shell: true,
   });

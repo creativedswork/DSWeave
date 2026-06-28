@@ -21,6 +21,8 @@ import {
 import type {
   DSWeaveAcpClient,
   DSWeaveEvent,
+  InstallSkillParams,
+  SkillInfo,
   ToolCallState,
   UnderstandingNotification,
 } from '@dsweave/protocol';
@@ -155,6 +157,18 @@ interface DSWeaveState {
   /** 当前在 ArtifactViewer 中预览的产物 uri（null = 关闭）。 */
   viewingArtifact: string | null;
 
+  // ---- Skills 库（顶栏抽屉，唯一控制点）----
+  /** Skills 抽屉是否打开。 */
+  skillsOpen: boolean;
+  /** 已发现的 skill（三级作用域合并）。 */
+  skills: SkillInfo[];
+  /** 已激活数（顶栏角标）。 */
+  skillsActiveCount: number;
+  skillsLoading: boolean;
+  skillsError: string | null;
+  /** 激活作用域：全局（用户级偏好）/ 当前 flow。 */
+  skillScope: 'global' | 'flow';
+
   setFlowName: (name: string) => void;
   onNodesChange: (changes: NodeChange<DSNode>[]) => void;
   onEdgesChange: (changes: EdgeChange<DSEdge>[]) => void;
@@ -185,6 +199,19 @@ interface DSWeaveState {
   viewArtifact: (uri: string | null) => void;
   /** 把产物「提升」为新的 source 节点（复用为后续工作流输入）。 */
   promoteArtifact: (uri: string) => void;
+
+  // ---- Skills 库管理 ----
+  openSkills: () => void;
+  closeSkills: () => void;
+  setSkillScope: (scope: 'global' | 'flow') => void;
+  /** 拉取最新 skill 清单（含当前 flow 的有效激活态）。 */
+  loadSkills: () => Promise<void>;
+  /** 激活/停用一个 skill（按当前 skillScope 写全局或 flow 覆盖）。 */
+  toggleSkill: (id: string, active: boolean) => Promise<void>;
+  /** 安装一个 skill（folder/git/promote）。 */
+  installSkill: (params: InstallSkillParams) => Promise<void>;
+  /** 删除一个 skill。 */
+  removeSkillById: (id: string) => Promise<void>;
 }
 
 const STAGGER = 28;
@@ -208,6 +235,13 @@ export const useDSWeaveStore = create<DSWeaveState>((set, get) => ({
   runError: null,
   pendingPermission: null,
   viewingArtifact: null,
+
+  skillsOpen: false,
+  skills: [],
+  skillsActiveCount: 0,
+  skillsLoading: false,
+  skillsError: null,
+  skillScope: 'global',
 
   setFlowName: (name) => set({ flowName: name }),
 
@@ -472,6 +506,70 @@ export const useDSWeaveStore = create<DSWeaveState>((set, get) => ({
       };
       return { nodes: [...s.nodes, node], viewingArtifact: null };
     }),
+
+  openSkills: () => {
+    set({ skillsOpen: true });
+    void get().loadSkills();
+  },
+
+  closeSkills: () => set({ skillsOpen: false }),
+
+  setSkillScope: (scope) => {
+    set({ skillScope: scope });
+    void get().loadSkills();
+  },
+
+  loadSkills: async () => {
+    set({ skillsLoading: true, skillsError: null });
+    try {
+      const client = await getClient();
+      const res = await client.listSkills();
+      set({ skills: res.skills, skillsActiveCount: res.activeCount, skillsLoading: false });
+    } catch (err) {
+      set({ skillsLoading: false, skillsError: errText(err) });
+    }
+  },
+
+  toggleSkill: async (id, active) => {
+    const scope = get().skillScope;
+    // 乐观更新开关
+    set((s) => ({ skills: s.skills.map((sk) => (sk.id === id ? { ...sk, active } : sk)) }));
+    try {
+      const client = await getClient();
+      const res = await client.setSkillActive({
+        id,
+        active,
+        scope,
+        flowId: scope === 'flow' ? get().flowId : undefined,
+      });
+      set({ skillsActiveCount: res.activeCount });
+    } catch (err) {
+      set({ skillsError: errText(err) });
+      await get().loadSkills();
+    }
+  },
+
+  installSkill: async (params) => {
+    set({ skillsLoading: true, skillsError: null });
+    try {
+      const client = await getClient();
+      await client.installSkill(params);
+      await get().loadSkills();
+    } catch (err) {
+      set({ skillsLoading: false, skillsError: errText(err) });
+      throw err;
+    }
+  },
+
+  removeSkillById: async (id) => {
+    try {
+      const client = await getClient();
+      await client.removeSkill({ id });
+      await get().loadSkills();
+    } catch (err) {
+      set({ skillsError: errText(err) });
+    }
+  },
 
   cancel: () => {
     activeClient?.cancel();

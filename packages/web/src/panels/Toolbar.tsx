@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useReactFlow } from '@xyflow/react';
 import { useDSWeaveStore, parseFlowJson } from '../store/useDSWeaveStore';
 import { collectFromFileList } from '../lib/files';
@@ -24,6 +24,14 @@ export function Toolbar() {
   const cancel = useDSWeaveStore((s) => s.cancel);
   const running = useDSWeaveStore((s) => s.running);
   const hasNodes = useDSWeaveStore((s) => s.nodes.length > 0);
+  const openSkills = useDSWeaveStore((s) => s.openSkills);
+  const skillsActiveCount = useDSWeaveStore((s) => s.skillsActiveCount);
+  const loadSkills = useDSWeaveStore((s) => s.loadSkills);
+
+  // 启动时拉一次激活数（角标）；Host 未启动则静默忽略。
+  useEffect(() => {
+    void loadSkills();
+  }, [loadSkills]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dirInputRef = useRef<HTMLInputElement>(null);
@@ -96,6 +104,20 @@ export function Toolbar() {
         </button>
         <button type="button" className={btn()} onClick={() => addOutputNode(centerPosition())}>
           + 输出节点
+        </button>
+        <span className="mx-1 h-5 w-px bg-neutral-800" />
+        <button
+          type="button"
+          onClick={openSkills}
+          className="flex items-center gap-1.5 rounded-md border border-violet-500/50 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-200 transition-colors hover:bg-violet-500/20"
+          title="Skills 库：安装 + 激活的唯一控制点"
+        >
+          ✦ Skills
+          {skillsActiveCount > 0 && (
+            <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-fuchsia-500 px-1 text-[10px] font-bold text-white">
+              {skillsActiveCount}
+            </span>
+          )}
         </button>
         <span className="mx-1 h-5 w-px bg-neutral-800" />
         <button type="button" className={btn()} onClick={newFlow}>

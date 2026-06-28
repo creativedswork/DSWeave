@@ -25,6 +25,8 @@ const GEMINI_BACKEND: AcpBackendSpec = {
   label: 'Gemini',
   slug: 'gemini',
   resolveCommand: (opts) => defaultGeminiAdapterCommand(opts),
+  // 开放标准 .agents/skills（优先；Antigravity 迁移后统一采用）。
+  skillsDir: '.agents/skills',
 };
 
 /** 创建一个 Gemini 驱动的内部 Agent 连接。 */

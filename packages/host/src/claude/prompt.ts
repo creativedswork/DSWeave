@@ -84,6 +84,13 @@ export function buildScenePrompt(prompt: PromptInput): { text: string; context: 
     context.outputTypeId === 'report.html'
       ? '风格基调：偏 2D 知识报告（目录+正文+引用），但仍可用 <model-viewer> 预览模型。'
       : '风格基调：偏 3D 沉浸（以 <model-viewer> 为主视觉），辅以文字说明。';
+  // 接缝①（可选兜底）：至多一行指针，不重复塞 skill 正文（正文已物化进 cwd 供原生发现/渐进披露）。
+  const skills = prompt.skills ?? [];
+  const skillsPointer = skills.length
+    ? `本任务已装配 ${skills.length} 个 skill（${skills
+        .map((s) => s.name)
+        .join('、')}），如适用请按其指引产出。`
+    : '';
   const text = [
     `你是 DSWeave 的产出 Agent。把下面的工作流编排成一个自包含的 ${OUTPUT_FILENAME}。`,
     ``,
@@ -92,6 +99,7 @@ export function buildScenePrompt(prompt: PromptInput): { text: string; context: 
     ``,
     `用户对输出（${context.outputTypeId}）的诉求：${context.hint || '（未指定，自行决定合理风格）'}`,
     styleHint,
+    ...(skillsPointer ? ['', skillsPointer] : []),
     ``,
     RULES,
     ``,

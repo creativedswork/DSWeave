@@ -17,13 +17,20 @@ import { encodeGraphToPrompt, type SessionContext } from './encode.js';
 import type { DSWeaveEvent } from './events.js';
 import {
   RPC,
+  type InstallSkillParams,
+  type InstallSkillResult,
+  type ListSkillsResult,
   type NewSessionResult,
   type PromptResult,
   type RegisterFileParams,
   type RegisterFileResult,
+  type RemoveSkillParams,
+  type RemoveSkillResult,
   type RequestPermissionParams,
   type RequestPermissionResult,
   type SessionUpdateNotification,
+  type SetActiveSkillParams,
+  type SetActiveSkillResult,
   type UnderstandingNotification,
 } from './messages.js';
 
@@ -101,6 +108,28 @@ export class DSWeaveAcpClient {
    */
   registerFile(params: RegisterFileParams): Promise<RegisterFileResult> {
     return this.peer.request<RegisterFileResult>(RPC.understandingRegister, params);
+  }
+
+  // ---------- Skills 库管理（Host 侧处理） ----------
+
+  /** 列出三级作用域已发现的 skill（含激活态）。 */
+  listSkills(): Promise<ListSkillsResult> {
+    return this.peer.request<ListSkillsResult>(RPC.skillsList, {});
+  }
+
+  /** 安装一个 skill。 */
+  installSkill(params: InstallSkillParams): Promise<InstallSkillResult> {
+    return this.peer.request<InstallSkillResult>(RPC.skillsInstall, params);
+  }
+
+  /** 激活/停用一个 skill。 */
+  setSkillActive(params: SetActiveSkillParams): Promise<SetActiveSkillResult> {
+    return this.peer.request<SetActiveSkillResult>(RPC.skillsSetActive, params);
+  }
+
+  /** 删除一个 skill。 */
+  removeSkill(params: RemoveSkillParams): Promise<RemoveSkillResult> {
+    return this.peer.request<RemoveSkillResult>(RPC.skillsRemove, params);
   }
 
   /** 回应一个授权请求。 */

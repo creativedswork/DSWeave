@@ -8,7 +8,7 @@
  * 运行方式：由 inProcessClaudeAgentConnector 经 CLAUDE_ACP_CMD=node CLAUDE_ACP_ARGS=<此文件> spawn。
  */
 import { Readable, Writable } from 'node:stream';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   AgentSideConnection,
@@ -61,6 +61,26 @@ function parseContext(text: string): Ctx {
   }
 }
 
+/**
+ * 探测 cwd 里被物化的 skill（模拟真实编码 agent 的「原生发现」）：
+ * 扫常见 skillsDir 下含 SKILL.md 的子目录，返回它们的 id。
+ */
+function discoverSkillIds(): string[] {
+  const dirs = ['.claude/skills', '.agents/skills', '.gemini/skills'];
+  const ids = new Set<string>();
+  for (const d of dirs) {
+    try {
+      if (!existsSync(d)) continue;
+      for (const name of readdirSync(d)) {
+        if (existsSync(join(d, name, 'SKILL.md'))) ids.add(name);
+      }
+    } catch {
+      // 忽略
+    }
+  }
+  return [...ids].sort();
+}
+
 function buildHtml(ctx: Ctx): string {
   const model = ctx.models[0];
   const img = (ctx.images ?? [])[0];
@@ -71,7 +91,9 @@ function buildHtml(ctx: Ctx): string {
     ? `<model-viewer src="asset://${model.nodeId}" camera-controls auto-rotate style="width:100%;height:480px"></model-viewer>`
     : '';
   const image = img ? `<img src="asset://${img.nodeId}" style="max-width:100%">` : '';
-  return `<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>fake</title></head><body>${viewer}${image}<section><p>${body}</p></section></body></html>`;
+  // 把「原生发现到的 skill」写进注释，供烟测验证物化链路（接缝②）。
+  const skillMarker = `<!-- dsweave-skills: ${discoverSkillIds().join(',')} -->`;
+  return `<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>fake</title></head><body>${skillMarker}${viewer}${image}<section><p>${body}</p></section></body></html>`;
 }
 
 const stream = ndJsonStream(

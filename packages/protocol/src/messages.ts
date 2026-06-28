@@ -40,6 +40,15 @@ export const RPC = {
   understandingRegister: 'understanding/register',
   /** Host → Client：文件理解就绪后的流式回填（通知）。 */
   understandingUpdate: 'understanding/update',
+  // ---------- Skills 库管理（Client → Host，Host 侧处理，不转发 Agent） ----------
+  /** 列出三级作用域已发现的 skill（含来源/激活态）。 */
+  skillsList: 'skills/list',
+  /** 安装一个 skill（folder/zip/git/registry/promote）。 */
+  skillsInstall: 'skills/install',
+  /** 激活/停用一个 skill（全局 / 当前 flow）。 */
+  skillsSetActive: 'skills/setActive',
+  /** 删除一个 skill。 */
+  skillsRemove: 'skills/remove',
 } as const;
 
 export interface NewSessionParams {
@@ -83,6 +92,20 @@ export interface PromptInput {
   outputs: OutputSpec[];
   /** 上下文工程产出（Host 注入；M3 起）。 */
   context?: PromptContext;
+  /**
+   * 本次激活的 skill（Host 注入；S2 起）。Agent 侧据此把每个 skill 目录物化进 cwd，
+   * 供编码 agent 原生发现 + 渐进披露。只含元数据 + 源目录，不含正文。
+   */
+  skills?: PromptSkill[];
+}
+
+/** 注入给 Agent 的一个激活 skill（元数据 + 源目录，正文由 agent 按需读）。 */
+export interface PromptSkill {
+  id: string;
+  name: string;
+  description: string;
+  /** Host 侧该 skill 目录的绝对路径（Agent 进程内据此整目录拷进 cwd）。 */
+  dir: string;
 }
 
 export interface PromptParams {
@@ -188,4 +211,93 @@ export interface CapabilityInvokeParams {
 export interface CapabilityInvokeResult {
   artifact: Artifact;
   cached: boolean;
+}
+
+// ---------- Skills 库管理 ----------
+
+/** skill 作用域（合并优先级：project > user > builtin）。 */
+export type SkillScope = 'builtin' | 'user' | 'project';
+
+/** skill 安装来源。 */
+export interface SkillSourceRef {
+  kind: 'folder' | 'zip' | 'git' | 'registry' | 'promote';
+  ref?: string;
+  gitRef?: string;
+  subdir?: string;
+  installedAt?: string;
+}
+
+/** 一个已发现 skill 的对外视图（catalog 用）。 */
+export interface SkillInfo {
+  id: string;
+  name: string;
+  description: string;
+  outputTypes: string[];
+  scope: SkillScope;
+  source?: SkillSourceRef;
+  /** 全局是否激活。 */
+  active: boolean;
+  /** 内置 skill 不可删除。 */
+  builtin: boolean;
+}
+
+/** skills/list 返回。 */
+export interface ListSkillsResult {
+  skills: SkillInfo[];
+  /** 全局已激活数（顶栏角标）。 */
+  activeCount: number;
+}
+
+/** 安装时携带的一个文件（folder/zip 源用）。 */
+export interface SkillFileContent {
+  /** 相对 skill 根目录的路径（用 / 分隔）。 */
+  path: string;
+  /** base64 编码字节。 */
+  content: string;
+}
+
+/** skills/install 入参。来源不同字段不同。 */
+export interface InstallSkillParams {
+  source: SkillSourceRef['kind'];
+  /** 目标作用域（默认 project）。 */
+  scope?: Exclude<SkillScope, 'builtin'>;
+  /** 期望的 skill id（slug）；缺省时由 Host 从 SKILL.md / 文件夹名推断。 */
+  id?: string;
+  // --- folder / zip ---
+  files?: SkillFileContent[];
+  // --- git ---
+  repo?: string;
+  gitRef?: string;
+  subdir?: string;
+  // --- promote（把产物提升为 skill）---
+  name?: string;
+  description?: string;
+  html?: string;
+}
+
+export interface InstallSkillResult {
+  skill: SkillInfo;
+}
+
+/** skills/setActive 入参。 */
+export interface SetActiveSkillParams {
+  id: string;
+  active: boolean;
+  /** 'global'（默认，用户级偏好）或 'flow'（当前 flow 覆盖）。 */
+  scope?: 'global' | 'flow';
+  /** scope='flow' 时必填。 */
+  flowId?: string;
+}
+
+export interface SetActiveSkillResult {
+  activeCount: number;
+}
+
+/** skills/remove 入参。 */
+export interface RemoveSkillParams {
+  id: string;
+}
+
+export interface RemoveSkillResult {
+  removed: boolean;
 }

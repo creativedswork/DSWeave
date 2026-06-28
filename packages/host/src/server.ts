@@ -13,6 +13,7 @@ import { NodeWsTransport } from './ws-transport.js';
 import { ArtifactStore } from './artifacts.js';
 import { createDefaultCapabilityRegistry } from './capabilities/index.js';
 import type { CapabilityRegistry } from './capabilities/index.js';
+import { SkillsService } from './skills/index.js';
 
 export interface ServerOptions {
   port: number;
@@ -22,6 +23,8 @@ export interface ServerOptions {
   agentConnector?: AgentConnector;
   /** 能力注册表；缺省 scene.html。 */
   capabilities?: CapabilityRegistry;
+  /** Skills 服务；缺省据 workingDir 自动发现三级作用域。 */
+  skills?: SkillsService;
   /** 是否打印帧日志（默认 true）。 */
   verbose?: boolean;
 }
@@ -64,6 +67,8 @@ export function startServer(options: ServerOptions): Promise<RunningServer> {
   const capabilities = options.capabilities ?? createDefaultCapabilityRegistry();
   // 跨连接共享文件理解服务，使内容寻址缓存得以复用，并供能力解析资产/分块。
   const understanding = new UnderstandingService();
+  // Skills 库管理 + 激活集（项目级作用域绑定 workingDir）。
+  const skills = options.skills ?? new SkillsService({ workingDir });
   const manager = new AgentManager(options.agentConnector);
 
   const httpServer = createServer((req, res) => serveArtifact(req, res, artifacts));
@@ -83,6 +88,7 @@ export function startServer(options: ServerOptions): Promise<RunningServer> {
     const agent = manager.connect();
     const handle: BridgeHandle = bridge(clientTransport, agent.transport, {
       understanding,
+      skills,
       onCapabilityInvoke,
       onFrame: verbose
         ? (dir, msg) => {

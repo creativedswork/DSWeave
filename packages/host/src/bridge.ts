@@ -13,12 +13,16 @@ import {
   type AcpTransport,
   type CapabilityInvokeParams,
   type CapabilityInvokeResult,
+  type InstallSkillParams,
   type PromptParams,
   type RegisterFileParams,
   type RegisterFileResult,
+  type RemoveSkillParams,
+  type SetActiveSkillParams,
   type UnderstandingNotification,
 } from '@dsweave/protocol';
 import type { UnderstandingService } from './understanding-service.js';
+import type { SkillsService } from './skills/index.js';
 import { buildContext } from './context/builder.js';
 
 export type CapabilityInvoker = (
@@ -27,6 +31,8 @@ export type CapabilityInvoker = (
 
 export interface BridgeOptions {
   understanding?: UnderstandingService;
+  /** Skills 库管理 + 激活集解析（Host 侧拦截 skills/* + 注入 prompt.skills）。 */
+  skills?: SkillsService;
   /** Agent 侧 capability/invoke 的处理器（Host 能力执行）。 */
   onCapabilityInvoke?: CapabilityInvoker;
   /** 帧观测回调（仅旁路，不改变转发）。 */
@@ -52,7 +58,7 @@ export function bridge(
   options: BridgeOptions = {},
 ): BridgeHandle {
   let closed = false;
-  const { understanding, onCapabilityInvoke } = options;
+  const { understanding, skills, onCapabilityInvoke } = options;
 
   client.onMessage((msg) => {
     if (isObject(msg)) {
@@ -61,9 +67,14 @@ export function bridge(
         handleRegister(client, understanding, msg.id as number, msg.params as RegisterFileParams);
         return;
       }
-      // 2) prompt 注入：转发前补全 understanding + context。
-      if (isRequest(msg) && msg.method === RPC.sessionPrompt && understanding) {
-        enrichPrompt(msg.params as PromptParams, understanding);
+      // 2) Host 拦截：Skills 库管理（不转发给 Agent）。
+      if (isRequest(msg) && skills && isSkillsMethod(msg.method as string)) {
+        handleSkills(client, skills, msg.id as number, msg.method as string, msg.params);
+        return;
+      }
+      // 3) prompt 注入：转发前补全 understanding + context + 激活 skills。
+      if (isRequest(msg) && msg.method === RPC.sessionPrompt) {
+        enrichPrompt(msg.params as PromptParams, understanding, skills);
       }
     }
     options.onFrame?.('client->agent', msg);
@@ -142,15 +153,75 @@ function handleCapability(
     });
 }
 
-/** 在转发给 Agent 前，给 prompt 的图注入 understanding，并附 ContextBuilder 上下文。 */
-function enrichPrompt(params: PromptParams, understanding: UnderstandingService): void {
+/**
+ * 在转发给 Agent 前：给图注入 understanding + ContextBuilder 上下文（M3）；
+ * 并把当前 flow 的激活 skill 集（元数据 + 源目录）注入 prompt.skills（S2）。
+ */
+function enrichPrompt(
+  params: PromptParams,
+  understanding?: UnderstandingService,
+  skills?: SkillsService,
+): void {
   const prompt = params?.prompt;
   const graph = prompt?.graph as FlowGraph | undefined;
   if (!graph) return;
-  for (const node of graph.nodes) {
-    if (node.kind !== 'source') continue;
-    const u = understanding.getForNode(node.id);
-    if (u) node.understanding = u;
+  if (understanding) {
+    for (const node of graph.nodes) {
+      if (node.kind !== 'source') continue;
+      const u = understanding.getForNode(node.id);
+      if (u) node.understanding = u;
+    }
+    prompt.context = buildContext(graph, understanding.snapshot());
   }
-  prompt.context = buildContext(graph, understanding.snapshot());
+  if (skills) {
+    const active = skills.resolveActive(graph.id);
+    if (active.length) prompt.skills = active;
+  }
+}
+
+const SKILLS_METHODS = new Set<string>([
+  RPC.skillsList,
+  RPC.skillsInstall,
+  RPC.skillsSetActive,
+  RPC.skillsRemove,
+]);
+
+function isSkillsMethod(method: string): boolean {
+  return SKILLS_METHODS.has(method);
+}
+
+/** 处理 skills/* 请求：调用 SkillsService，把结果直接回给前端（不转发 Agent）。 */
+function handleSkills(
+  client: AcpTransport,
+  skills: SkillsService,
+  id: number,
+  method: string,
+  params: unknown,
+): void {
+  try {
+    let result: unknown;
+    switch (method) {
+      case RPC.skillsList:
+        result = skills.list((params as { flowId?: string } | undefined)?.flowId);
+        break;
+      case RPC.skillsInstall:
+        result = skills.install(params as InstallSkillParams);
+        break;
+      case RPC.skillsSetActive:
+        result = skills.setActive(params as SetActiveSkillParams);
+        break;
+      case RPC.skillsRemove:
+        result = skills.remove(params as RemoveSkillParams);
+        break;
+      default:
+        throw new Error(`unhandled skills method: ${method}`);
+    }
+    client.send({ jsonrpc: '2.0', id, result });
+  } catch (err) {
+    client.send({
+      jsonrpc: '2.0',
+      id,
+      error: { code: -32603, message: err instanceof Error ? err.message : String(err) },
+    });
+  }
 }

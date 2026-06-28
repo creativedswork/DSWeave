@@ -371,6 +371,6 @@ graph LR
 
 - [x] **发现探针就绪**（`pnpm skills:probe`，`packages/host/src/skills-probe.ts`）：零泄漏判定（nonce 仅入 SKILL.md），编译通过。**本机真跑待操作者执行**（沙箱内不可联网）。
 - [x] **UI 原型**（`docs/prototypes/skills-ui.prototype.html`）：自包含、四态可交互、对齐现有深色主题。
-- [ ] **S1**：内置 skill 固定物化进 cwd（接缝②最小版），开/关对比产出质量。
-- [ ] **S2**：cwd 物化 + `AcpBackendSpec.skillsDir` + 据激活集物化，agent 原生发现并自主触发。
-- [ ] **S3**：库管理 UI（激活开关）+ `skills/*` 协议方法 + 全局/flow 激活集 + 资产内联（接缝③）。
+- [x] **S1+S2 已落地**：内置 `html-output` skill（`packages/host/skills/html-output/`，来自 `~/Workspace/Skills/html-output-skill`），默认激活；skill loader 解析 frontmatter + 三级作用域合并（`packages/host/src/skills/loader.ts`）；`SkillsService`（`skills/service.ts`）据激活集解析；`AcpBackendSpec.skillsDir`（Claude `.claude/skills`、Gemini `.agents/skills`）；bridge 转发前把激活集注入 `prompt.skills`，`acp/acp-agent.ts` 在 `session.init` 前把每个 skill 整目录物化进 `cwd/<skillsDir>/<id>/`（接缝②），`buildScenePrompt` 追加一行指针（接缝①）。**沙箱烟测 `pnpm skills:smoke` 全通过**：内置发现/物化/停用不物化/folder 安装并激活被发现/删除/内置不可删。
+- [x] **S3（库管理）已落地**：`skills/*` 协议方法（`list`/`install`/`setActive`/`remove`，bridge 就地处理不转发 Agent）+ 全局/flow 激活集（全局存用户级 `~/.dsweave/skills-active.json`，flow 覆盖在内存）+ 顶栏 `✦ Skills` 抽屉 UI（`packages/web/src/panels/SkillsDrawer.tsx`：安装/激活开关/删除/激活范围/角标=已激活数）。安装来源已支持 folder（文件载荷）/ git（clone）/ promote（产物提升）。
+- [ ] **S3 余项（后置）**：上传 .zip / 精选库一键装；资产内联（接缝③，`asset://skill:<id>/*` 进 `validateHtml` 白名单 + `scene-html.ts` 内联）；git 安装的网络 `request_permission` 闸门；「检查更新」。

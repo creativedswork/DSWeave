@@ -19,6 +19,7 @@ import {
 import type { FlowGraph } from '@dsweave/core';
 import { startServer } from './server.js';
 import { inProcessClaudeAgentConnector } from './agent-manager.js';
+import { SkillsService } from './skills/index.js';
 import { NodeWsTransport } from './ws-transport.js';
 
 const GLTF = JSON.stringify({
@@ -105,10 +106,18 @@ async function main() {
   }
 
   const workingDir = mkdtempSync(join(tmpdir(), 'dsweave-freeform-'));
+  // 隔离的 Skills 服务，避免污染真实 ~/.dsweave（无内置则不物化任何 skill）。
+  const skills = new SkillsService({
+    workingDir,
+    builtinDir: join(workingDir, 'no-builtin'),
+    userDir: join(workingDir, 'user-skills'),
+    activeFile: join(workingDir, 'skills-active.json'),
+  });
   const server = await startServer({
     port: PORT,
     workingDir,
     agentConnector: inProcessClaudeAgentConnector({ command: 'node', args: [fakeAdapter] }),
+    skills,
     verbose: false,
   });
 
