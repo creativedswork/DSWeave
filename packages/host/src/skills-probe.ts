@@ -16,7 +16,6 @@
  *   CLAUDE_ACP_ARGS   逗号分隔参数（默认 "-y,@agentclientprotocol/claude-agent-acp"）
  *   SKILLS_PROBE_ROOTS=1  额外通过 session/new 的 _meta.additionalRoots 注入 skills 根（验证兜底路径，需 adapter 支持 PR #406）
  */
-import { spawn } from 'node:child_process';
 import { Readable, Writable } from 'node:stream';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -34,6 +33,7 @@ import {
   type RequestPermissionResponse,
   type SessionNotification,
 } from '@agentclientprotocol/sdk';
+import { spawnCross } from './util/spawn.js';
 
 const cmd = process.env.CLAUDE_ACP_CMD ?? 'npx';
 const args = (process.env.CLAUDE_ACP_ARGS ?? '-y,@agentclientprotocol/claude-agent-acp').split(',');
@@ -71,7 +71,7 @@ async function main(): Promise<void> {
   log('spawn:', cmd, args.join(' '), useAdditionalRoots ? '(+ _meta.additionalRoots)' : '');
   log('启动 adapter 中…（首次 npx 冷启动可能 ~1 分钟）');
 
-  const child = spawn(cmd, args, {
+  const child = spawnCross(cmd, args, {
     cwd: workspace,
     env: process.env,
     stdio: ['pipe', 'pipe', 'inherit'],
@@ -102,6 +102,7 @@ async function main(): Promise<void> {
     }
   };
 
+  if (!child.stdin || !child.stdout) throw new Error('adapter 未提供 stdio 管道');
   const stream = ndJsonStream(
     Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
     Readable.toWeb(child.stdout) as unknown as ReadableStream<Uint8Array>,

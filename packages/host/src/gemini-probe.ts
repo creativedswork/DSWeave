@@ -16,11 +16,11 @@
  *   GEMINI_ACP_ARGS  逗号分隔参数（默认 "--acp"）
  * 参考：https://geminicli.com/docs/cli/acp-mode/
  */
-import { spawn } from 'node:child_process';
 import { Readable, Writable } from 'node:stream';
 import { mkdtempSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, isAbsolute } from 'node:path';
+import { spawnCross } from './util/spawn.js';
 import {
   ClientSideConnection,
   ndJsonStream,
@@ -50,7 +50,7 @@ async function main(): Promise<void> {
   log('spawn:', cmd, args.join(' '));
 
   log('启动 adapter 中…（首次冷启动可能较慢，请耐心等待）');
-  const child = spawn(cmd, args, {
+  const child = spawnCross(cmd, args, {
     cwd: workspace,
     // 继承环境，让 Gemini CLI 复用本机登录态 / GEMINI_API_KEY / GOOGLE_API_KEY
     env: process.env,
@@ -86,6 +86,7 @@ async function main(): Promise<void> {
     }
   };
 
+  if (!child.stdin || !child.stdout) throw new Error('adapter 未提供 stdio 管道');
   const stream = ndJsonStream(
     Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
     Readable.toWeb(child.stdout) as unknown as ReadableStream<Uint8Array>,

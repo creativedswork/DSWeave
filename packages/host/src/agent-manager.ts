@@ -5,11 +5,11 @@
  * - inProcessMockConnector（M2 默认）：进程内 Mock Agent，零进程、最稳。
  * - spawnStdioConnector：spawn 子进程，走 stdio ndjson（真实/外部 Agent 路径）。
  */
-import { spawn } from 'node:child_process';
 import { createMemoryTransportPair, type AcpTransport } from '@dsweave/protocol';
 import { createMockAgent, createSceneAgent, StdioTransport } from '@dsweave/agent';
 import { createClaudeAgent, type ClaudeAgentOptions } from './claude/claude-agent.js';
 import { createGeminiAgent, type GeminiAgentOptions } from './gemini/gemini-agent.js';
+import { spawnCross } from './util/spawn.js';
 
 export interface AgentEndpoint {
   /** Host 侧用于与 Agent 通信的传输。 */
@@ -74,7 +74,8 @@ export function inProcessGeminiAgentConnector(options: GeminiAgentOptions = {}):
 /** spawn 子进程并走 stdio ndjson（供真实/外部 Agent 使用）。 */
 export function spawnStdioConnector(command: string, args: string[] = []): AgentConnector {
   return () => {
-    const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'inherit'] });
+    const child = spawnCross(command, args, { stdio: ['pipe', 'pipe', 'inherit'] });
+    if (!child.stdin || !child.stdout) throw new Error('子进程未提供 stdio 管道');
     const transport = new StdioTransport(child.stdout, child.stdin);
     return {
       transport,

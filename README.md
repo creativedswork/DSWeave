@@ -98,6 +98,24 @@ DSWEAVE_AGENT=claude pnpm dev:host
 
 完整设计与里程碑见 [`docs/`](./docs/README.md)。
 
+### Windows（PowerShell）
+
+上面的 `KEY=value command` 是 bash/zsh 写法，PowerShell 不支持。在 **PowerShell** 里用 `$env:` 设置环境变量（先设置、再执行）：
+
+```powershell
+pnpm install
+pnpm build
+
+# 起前端编辑器 + Host（两个 PowerShell 窗口）
+pnpm dev:host
+pnpm dev:web
+
+# 用真实 Claude（当前会话内设置环境变量后再启动）
+$env:DSWEAVE_AGENT = "claude"; pnpm dev:host
+```
+
+> 其余命令（`pnpm install` / `pnpm build` / `pnpm dev:*`）在 PowerShell、CMD、bash 下完全一致。Host 接入 Claude/Gemini 时会自动以兼容 Windows 的方式启动 `npx` / `gemini`（`.cmd`）子进程，无需额外配置。
+
 ---
 
-要求：**Node ≥ 20，pnpm ≥ 9**。
+要求：**Node ≥ 20，pnpm ≥ 9**。跨平台支持 macOS / Linux / Windows。

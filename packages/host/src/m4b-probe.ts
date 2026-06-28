@@ -14,11 +14,11 @@
  *   CLAUDE_ACP_CMD   adapter 启动命令（默认 npx）
  *   CLAUDE_ACP_ARGS  逗号分隔参数（默认 "-y,@zed-industries/claude-code-acp"）
  */
-import { spawn } from 'node:child_process';
 import { Readable, Writable } from 'node:stream';
 import { mkdtempSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, isAbsolute } from 'node:path';
+import { spawnCross } from './util/spawn.js';
 import {
   ClientSideConnection,
   ndJsonStream,
@@ -48,7 +48,7 @@ async function main(): Promise<void> {
   log('spawn:', cmd, args.join(' '));
 
   log('启动 adapter 中…（首次 npx 冷启动可能 ~1 分钟，请耐心等待）');
-  const child = spawn(cmd, args, {
+  const child = spawnCross(cmd, args, {
     cwd: workspace,
     // 继承环境，让 adapter 复用本机 Claude Code 登录态 / ANTHROPIC_API_KEY
     env: process.env,
@@ -83,6 +83,7 @@ async function main(): Promise<void> {
     }
   };
 
+  if (!child.stdin || !child.stdout) throw new Error('adapter 未提供 stdio 管道');
   const stream = ndJsonStream(
     Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
     Readable.toWeb(child.stdout) as unknown as ReadableStream<Uint8Array>,

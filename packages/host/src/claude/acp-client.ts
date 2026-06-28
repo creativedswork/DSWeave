@@ -7,10 +7,11 @@
  *
  * 这是 DSWeave Host 在 stdio 边界「说官方 ACP」的那一层（M4b 关键决策一）。
  */
-import { spawn, type ChildProcess } from 'node:child_process';
+import { type ChildProcess } from 'node:child_process';
 import { Readable, Writable } from 'node:stream';
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
+import { spawnCross } from '../util/spawn.js';
 import {
   ClientSideConnection,
   ndJsonStream,
@@ -86,7 +87,7 @@ export class ClaudeAcpSession {
     this.cwd = resolve(cwd);
     mkdirSync(this.cwd, { recursive: true });
     const { command, args } = defaultAdapterCommand(this.opts);
-    const child = spawn(command, args, {
+    const child = spawnCross(command, args, {
       cwd: this.cwd,
       env: this.opts.env ?? process.env,
       stdio: ['pipe', 'pipe', 'inherit'],
