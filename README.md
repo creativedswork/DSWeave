@@ -6,7 +6,7 @@
 
 https://github.com/user-attachments/assets/40e478af-dd00-4e43-a6fb-d57453b05be6
 
-上面的视频是一次真实体验：拖入一个 `Character_Running.glb` 模型和一张 `character_fullbody.png` 图片，连到「输出节点」，输出类型选 **3D 沉浸场景（`scene.html`）**，点 **Start**，几秒后就得到一个把图片与模型空间化编排在一起的 3D 页面。
+上面的视频是一次真实体验：把素材（如 3D 模型与配图）拖进画布，连线写下它们之间的关系，输出节点选 **3D 沉浸场景（`scene.html`）**，点 **Start**，Agent 便理解素材与意图，产出一个把它们空间化编排、可旋转可交互的自包含 3D 页面。
 
 ---
 

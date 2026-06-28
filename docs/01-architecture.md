@@ -2,6 +2,8 @@
 
 > 文档版本：v0.2 ｜ 配套：`00-product-plan.md`、`02-technical-design.md`
 
+> **架构演进（2026-06）**：主链路已由「Agent 产出 SceneSpec 数据 → 预构建 R3F Player 渲染」改为「Agent 直接撰写自包含 HTML，Host 后处理注入 model-viewer 运行时 + 内联 asset://{nodeId} 资产字节」。@dsweave/player 包与 SceneSpec 契约已移除，Monorepo 由 6 包收敛为 5 包（core/protocol/host/agent/web）。本文相关图与章节据此更新。
+
 ---
 
 ## 1. 架构总览
@@ -46,7 +48,7 @@ flowchart LR
 2. **Host ⟷ Agent** 用标准 ACP stdio——任何符合 ACP 的 Agent（Mock / 自建 / Gemini CLI 等）即插即用。
 3. `core` 与 `protocol` 是**前后端共享**的纯逻辑包，节点图与协议编解码只有一份真相。
 4. **文件理解 + 上下文工程是 Host 的一等职责、也是产品主价值**：文档解析+分块+检索，**外加 gltf 离屏渲染与结构解析**，作为高质量上下文喂给 Agent。
-5. **输出受限、3D 优先、数据驱动**：用户能选的输出严格等于注册表里真实存在的 `OutputType`。MVP 首发 **`scene.html`（3D 沉浸式 HTML/WebGL）**。运行时是**我们自研、CI 预构建的 R3F Scene Player**；**Agent 只产出 `SceneSpec` 数据，绝不写代码**；`scene.html` 能力把 SceneSpec+资产注入 Player bundle，导出**自包含单文件 HTML**。把"会出错的代码"留在构建期，保证产物一定可运行。
+5. **输出受限、3D 优先、HTML 自包含**：用户能选的输出严格等于注册表里真实存在的 `OutputType`。MVP 首发 **`scene.html`（3D 沉浸式 HTML/WebGL）**。**Agent 直接撰写自包含 HTML**；`scene.html` 能力对其做后处理——**注入 model-viewer 运行时（vendored `@google/model-viewer` UMD）+ 把 `asset://{nodeId}` 内联为 data URI 资产字节**，导出**自包含单文件 HTML**（离线、内容寻址可缓存）。Host 主循环还会对 Agent 写出的 HTML 做**纯文本校验回灌重试**（非空 / 无外链 script·link / `asset://` 仅引用 models∪images），失败则回灌重写。
 
 ---
 
@@ -58,9 +60,9 @@ flowchart LR
 | --- | --- |
 | `initialize` | Host 启动 Agent，协商协议版本与能力 |
 | `session/new` | 一次运行 = 一个 session（携带工作目录、能力清单、文件表征+上下文） |
-| `session/prompt` | 把**整张节点图**（节点=文件+上下文(含 gltf 渲染图/部件)、边=语义文字、输出=受限类型+软细节）编码成 prompt |
+| `session/prompt` | 把**整张节点图**（节点=文件+上下文(含 gltf 渲染图/部件)、边=语义文字、输出=受限类型+软细节）转为「图→自由 HTML 指令 + 上下文（含文档真实分块、可引用 nodeId）」 |
 | `session/update`（流） | Agent 回传：思考、tool_call 状态、节点/连线执行态、产物 |
-| tool_call / tool_call_update | Agent 调用工具（检索上下文、`scene.html` 传 SceneSpec 生成 3D 页、`fs.write`）；前端展示工具卡片 |
+| tool_call / tool_call_update | Agent 调用工具（检索上下文、`scene.html` 传 `{ html }` → Host 注入运行时+内联资产、`fs.write`）；前端展示工具卡片 |
 | `session/request_permission` | Agent 执行危险/写操作前请求审批 → 前端弹窗，用户允许/拒绝 |
 | terminals | Agent 跑 shell（构建 React、转换等）；输出回流日志面板 |
 | `fs/*`（Client 侧能力） | Host 提供文件读写给 Agent（受沙箱目录约束） |
@@ -86,11 +88,10 @@ dsweave/
 │  │   src/{client,encode,decode,transport,index}.ts
 │  ├─ host/                    # Node 进程：WS 桥接、文件服务、文件理解+上下文工程、能力执行、Agent 管理
 │  │   src/{server,bridge,fs-service,understanding,context,capabilities,agent-manager,index}.ts
+│  │   # capabilities：scene.html HTML 后处理——注入 model-viewer 运行时 + 内联 asset://
 │  ├─ web/                     # 前端 App（编辑器）：画布、预览、面板
 │  │   src/{App.tsx,canvas/,nodes/,previews/,panels/,store/,acp/}
-│  ├─ player/                  # 自研 3D 运行时（R3F），数据驱动渲染 SceneSpec → 产物
-│  │   src/{Player.tsx,scene/,hotspots/,panels/,spec.ts}
-│  └─ agent/                   # 参考 ACP Agent（可选；亦可接外部 Agent）
+│  └─ agent/                   # 参考 ACP Agent（可选；亦可接外部 Agent），直接产出自包含 HTML
 │      src/{agent.ts,tools/,index.ts}
 └─ examples/                   # 示例 .flow.json 与素材
 ```
@@ -103,14 +104,12 @@ flowchart TD
   core --> web
   core --> host
   core --> agent
-  core --> player
   protocol --> web
   protocol --> host
   protocol --> agent
-  player -. 预构建 bundle .-> host
 ```
 
-`core` 不依赖任何人；`protocol` 仅依赖 `core` 与 `@agentclientprotocol/sdk`；`web/host/agent/player` 是叶子。`player` 由 CI 预构建出 bundle，`host` 的 `scene.html` 能力在运行期把 `SceneSpec` 注入该 bundle 生成产物（不在运行期编译 `player`）。
+`core` 不依赖任何人；`protocol` 仅依赖 `core` 与 `@agentclientprotocol/sdk`；`web/host/agent` 是叶子。`host` 的 `scene.html` 能力把 Agent 写的自包含 HTML 做后处理——注入 model-viewer 运行时（vendored `@google/model-viewer` UMD）+ 内联 `asset://{nodeId}` 资产字节，生成自包含单文件产物。
 
 ---
 
@@ -139,8 +138,10 @@ sequenceDiagram
   U->>W: 允许
   W->>H: 审批结果
   H->>A: 审批结果
-  A->>H: tool_call(scene.html(SceneSpec) / fs.write ...) 
-  H->>H: 执行能力 + 缓存查/写
+  A->>H: 写 <cwd>/index.html
+  H->>H: validateHtml 校验（失败回灌重写）
+  A->>H: tool_call(scene.html({ html }) / fs.write ...)
+  H->>H: scene.html 注入运行时+内联 asset:// + 内容寻址缓存
   A-->>H: session/update(节点 running→done, 日志, 产物 uri)
   H-->>W: 转发执行态
   W-->>U: 连线流动 / 节点状态 / 日志 / 产物预览
@@ -173,12 +174,12 @@ flowchart LR
 
 两类产物：
 
-- **自包含单文件**（`scene.html` / `report.html`，**默认**）：Player JS + SceneSpec + glb base64 全内联成一个 `.html`，双击即开、可分享、可缓存为单个 blob，前端 `<iframe>` 直接预览。
+- **自包含单文件**（`scene.html` / `report.html`，**默认**）：Agent HTML + model-viewer 运行时 + `asset://` 内联字节（data URI）全内联成一个 `.html`，双击即开、可分享、可缓存为单个 blob，前端 `<iframe>` 直接预览。
 - **多文件 dist 目录**（`app.react`，复杂交付）：`<iframe>` 指向 blob 会因相对路径加载不到 chunk/资产（同 gltf 相对路径坑），故由 **Host 起本地静态服务** `/_artifacts/<hash>/` 用真实 URL 提供；下载则 `zip` 整个目录（或可选 singlefile 压成单文件）。
 
 ```mermaid
 flowchart LR
-  A["Agent: SceneSpec(数据)"] --> CAP["Host: scene.html 能力<br/>注入预构建 Player"]
+  A["Agent: 自包含 HTML"] --> CAP["scene.html: 注入运行时+内联资产"]
   CAP -->|单文件| H1["内联 → 自包含 .html"]
   CAP -->|app.react| H2["dist/ 目录"]
   H1 --> ST["内容寻址落盘<br/>.dsweave/artifacts/&lt;hash&gt;/"]
@@ -188,7 +189,7 @@ flowchart LR
   ST --> V3["提升为新 source 节点(闭环)"]
 ```
 
-落盘内容寻址（`hash = f(图结构 + Player 版本 + SceneSpec)`）二次运行命中缓存；产物可一键「提升」为新 `source` 节点喂给下一个工作流，多文件产物直接复用 `FileRef.assets`。详见 `02-technical-design.md` §5.4。
+落盘内容寻址（`hash = f(最终 HTML 全文)`，运行时内嵌其中）二次运行命中缓存；产物可一键「提升」为新 `source` 节点喂给下一个工作流，多文件产物直接复用 `FileRef.assets`。详见 `02-technical-design.md` §5.4。
 
 ---
 

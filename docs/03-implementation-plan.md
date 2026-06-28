@@ -3,6 +3,8 @@
 > 文档版本：v0.2 ｜ 配套：`02-technical-design.md`
 > 可执行落地计划：里程碑拆解、逐包逐文件、验收标准。
 
+> **架构演进（2026-06）**：本计划按当时「Agent 产 SceneSpec + 预构建 R3F Player」设计编写。主链路其后改为「Agent 直接撰写自包含 HTML，Host 注入 model-viewer 运行时 + 内联 asset://{nodeId} 资产字节」；@dsweave/player 包与 SceneSpec 契约已移除，Monorepo 收敛为 5 包（core/protocol/host/agent/web）。以下里程碑叙述保留为历史记录，架构性描述以此说明为准。
+
 ---
 
 ## 1. 环境与前置
@@ -25,7 +27,7 @@ node -v && pnpm -v
 **目标**：可构建、可启动的空骨架。
 
 - [ ] 初始化 pnpm workspace（`pnpm-workspace.yaml`、根 `package.json`、`tsconfig.base.json`）。
-- [ ] 建 6 个包骨架：`core` / `protocol` / `host` / `web` / `player` / `agent`。
+- [ ] 建 6 个包骨架：`core` / `protocol` / `host` / `web` / `player` / `agent`。（已演进：`player` 包已移除，现为 5 包 `core`/`protocol`/`host`/`agent`/`web`；见顶部说明）
 - [ ] 统一 lint/format（ESLint flat config + Prettier）+ `tsc --build`。
 - [ ] 根脚本：`dev` / `build` / `typecheck` / `lint` / `test`。
 - [ ] CI（GitHub Actions）：install → typecheck → lint → build。
@@ -115,7 +117,7 @@ node -v && pnpm -v
 
 ### M4 · 主竖切（gltf + 文档 → `scene.html` 3D 沉浸页）
 
-> 已确认的**首条主竖切用例**。运行时＝数据驱动的自研 R3F Player；Agent 只产出 SceneSpec；交付自包含单文件 HTML。
+> 已确认的**首条主竖切用例**。运行时＝数据驱动的自研 R3F Player；Agent 只产出 SceneSpec；交付自包含单文件 HTML。（架构已演进：运行时改为 model-viewer，Agent 直接撰写自包含 HTML，不再有 SceneSpec/R3F Player；交付自包含单文件 HTML 仍成立。见顶部说明）
 >
 > **分两阶段（一条龙、分步可验，详见 [05-agent-integration.md](./05-agent-integration.md)）**：
 > - **M4a**（本仓、确定性、无 LLM）：Player 渲染 + `scene.html` 注入 + **启发式 SceneSpec agent** 走现有内部链路跑通竖切。
@@ -162,6 +164,8 @@ node -v && pnpm -v
 - [x] 产物"提升"为新 `source` 节点。
 
 **验收**：拖入 `model.gltf + 若干文档`，边写"模型居中可旋转、把章节绑成部件热点"，输出 `scene.html` + 软细节，点 Start → Agent 产出 SceneSpec → 审批 → 产出**自包含单文件 3D HTML**（双击即看、可交互、带文档热点与来源引用）；二次运行命中缓存秒出。✅ **M4a** `pnpm m4:smoke` 端到端通过（无 LLM、无外网/key）。✅ **M4b** 沙箱 `pnpm m4b:smoke`（假 ACP 替身）+ 阶段 A 探针 `pnpm m4b:probe`（真模型握手）通过；真模型竖切 `DSWEAVE_AGENT=claude pnpm dev:host` 操作者本机实测通过。
+>
+> （已演进，见顶部说明）上述 `m4`/`m4b`/`gemini` 等 smoke 脚本随主链路切换为 HTML 方案后已删除，端到端测试现统一为 `pnpm freeform:smoke`。
 
 > 实现说明（M4a）：
 > - **产出链路**：启发式 `SceneAgent`（`packages/agent`）基于图 + understanding 产出合法 `SceneSpec` → `request_permission` 审批 → 新增协议方法 `capability/invoke` 调用 Host 的 `scene.html` 能力。Bridge 在 agent→host 方向拦截 `capability/invoke`（不转发前端），由 `CapabilityRegistry` 执行。
@@ -178,7 +182,7 @@ node -v && pnpm -v
 
 ### M5 · 拓展 + 打磨
 
-- [ ] `app.react` 输出能力：把同一 Player 以**工程/dist**形式交付（复杂交互场景）。
+- [ ] `app.react` 输出能力：把同一 Player 以**工程/dist**形式交付（复杂交互场景）。（已演进，见顶部说明：不再有 Player 包，复杂交互场景改以 Agent 直写 HTML/前端工程交付）
 - [ ] 更多文件类型 + 向量检索（应对大知识库）。
 - [ ] `fetch.web` 联网检索能力（auto research，受 permission 约束）。
 - [ ] Tauri 套壳：`WebSocketTransport` → IPC Transport（前端零改）；three.js 依赖本地化。
@@ -193,7 +197,7 @@ node -v && pnpm -v
 > 目标：把自有的 **dscode**（DeepSeek V4 Pro）作为**内置 agent** 接入，**不走 MCP**。详见 [05-agent-integration.md §4](./05-agent-integration.md)。竖切（M4 Claude Code）验证后再做。
 
 - [ ] dscode 加 headless `AcpBackend`（实现其 `UiBackend` 接缝，零界面）+ `--acp` 入口。
-- [ ] SceneSpec 收口对齐 M4 落地方案（写 `scene.spec.json`，或 `set_scene` builtin driver 二选一）。
+- [ ] SceneSpec 收口对齐 M4 落地方案（写 `scene.spec.json`，或 `set_scene` builtin driver 二选一）。（已演进，见顶部说明：SceneSpec 已移除，收口改为 Agent 直写自包含 HTML，Host 注入 model-viewer 运行时 + 内联资产）
 - [ ] 本仓：`spawnStdioConnector` 可切换目标到 `dscode --acp --cwd <workspace>`，env 透传 `DEEPSEEK_API_KEY`。
 - [ ] 验证 Claude Code ↔ dscode 切换前端零改动；真模型实跑（需 `DEEPSEEK_API_KEY`）。
 
@@ -202,6 +206,8 @@ node -v && pnpm -v
 ---
 
 ## 3. 逐包文件清单（目标态）
+
+> 已演进（见顶部说明）：下表已更新为当前 5 包结构——`player` 包已移除；Host 的 `scene.html` 改为消费 Agent 直写的自包含 HTML（`HtmlPageInput{html}`），后处理注入 model-viewer 运行时并把 `asset://{nodeId}` 内联为 data URI 字节。
 
 ```
 packages/core/src/        model.ts schema.ts ir.ts index.ts
@@ -212,12 +218,9 @@ packages/host/src/        server.ts bridge.ts agent-manager.ts fs-service.ts
                           gemini/gemini-agent.ts                  # Gemini 薄包装（gemini --acp）
                           understanding/{registry,gltf,md,txt,pdf,html,data,image}.ts
                           context/{chunker,summarize,retrieve,builder}.ts
-                          capabilities/{registry,output-types,scene-html,gltf-render,fs}.ts
-                          export/{inject-player,singlefile}.ts    # 注入 SceneSpec→单文件 HTML
+                          capabilities/{registry,output-types,scene-html,gltf-render,fs}.ts  # scene.html v2 消费 HtmlPageInput{html}
+                          export/{inline-html,validate-html,model-viewer-runtime}.ts  # 注入 model-viewer 运行时 + 内联 asset://{nodeId} 字节 → 自包含单文件 HTML
                           cache.ts index.ts
-packages/player/src/      Player.tsx main.tsx spec.ts             # 自研 R3F 运行时
-                          scene/{Stage,ModelLoader,Camera}.tsx
-                          hotspots/Hotspot.tsx panels/DocPanel.tsx
 packages/web/src/         App.tsx main.tsx store/useDSWeaveStore.ts
                           canvas/{Canvas,SourceNode,OutputNode,EdgeEditor}.tsx
                           previews/{Gltf,Markdown,Pdf,Txt,Html,Image,Data}.tsx
@@ -234,10 +237,11 @@ packages/agent/src/       agent.ts tools/index.ts index.ts
 | --- | --- |
 | core | `zod` |
 | protocol | `core`、`@agentclientprotocol/sdk`、`zod` |
-| host | `core`、`protocol`、`@agentclientprotocol/sdk`、`ws`、`pdfjs-dist`/`pdf-parse`、`@mozilla/readability`、`jsdom`、`three`、`gltf` 渲染（`gl`/`puppeteer` 评估）、（向量检索 `hnswlib-node`/`sqlite-vec` 评估） |
+| host | `core`、`protocol`、`@agentclientprotocol/sdk`、`@google/model-viewer`（注入运行时）、`ws`、`pdfjs-dist`/`pdf-parse`、`@mozilla/readability`、`jsdom`、`three`、`gltf` 渲染（`gl`/`puppeteer` 评估）、（向量检索 `hnswlib-node`/`sqlite-vec` 评估） |
 | web | `core`、`protocol`、`react`、`react-dom`、`@xyflow/react`、`zustand`、`tailwindcss`、`react-markdown`、`remark-gfm`、`pdfjs-dist`、`@google/model-viewer`、`three`、`vite` |
-| player | `core`、`react`、`react-dom`、`three`、`@react-three/fiber`、`@react-three/drei`、`vite`、`vite-plugin-singlefile` |
 | agent | `core`、`protocol`、`@agentclientprotocol/sdk` |
+
+> 已演进（见顶部说明）：`player` 包及其 `@react-three/fiber`/`@react-three/drei`/`vite-plugin-singlefile` 依赖已随 R3F Player 移除；改由 Host 注入 `@google/model-viewer` 运行时。
 
 > 安装时用包管理器拉取最新版本，不手写版本号。
 
@@ -248,7 +252,7 @@ packages/agent/src/       agent.ts tools/index.ts index.ts
 - [ ] `pnpm build && pnpm typecheck && pnpm lint && pnpm test` 全绿。
 - [ ] 主竖切（gltf+文档→`scene.html` 3D）端到端通过：产物可加载模型、可交互、带文档热点与引用。
 - [ ] 文件理解：文档解析+分块+摘要 与 gltf 渲染/部件提取 正确并喂给 Agent。
-- [ ] `scene.html` 由 CI 预构建的 R3F Player + Agent 产出的 SceneSpec 注入生成，**保证可运行**（Agent 不写代码）。
+- [ ] `scene.html` 由 Agent 直接撰写自包含 HTML、Host 后处理注入 model-viewer 运行时 + 内联 `asset://{nodeId}` 资产字节生成，**保证离线可运行**（内容寻址）。（已演进，见顶部说明；原设计为「CI 预构建 R3F Player + Agent 产出 SceneSpec 注入」）
 - [ ] 产物为**自包含单文件 HTML**，双击即可在浏览器打开。
 - [ ] 输出菜单严格等于注册表里未隐藏的 OutputType。
 - [ ] 工作流可保存/加载/复跑，缓存命中生效。
@@ -261,12 +265,14 @@ packages/agent/src/       agent.ts tools/index.ts index.ts
 ## 6. 首批落地路径
 
 > 决策已确认（§`00-product-plan.md` §10）：**DSWeave / 空间化知识引擎(3D 输出) / Web+Host / 可插拔 Agent / 知识库+auto research / 受限输出(首发 `scene.html` 3D) / 数据驱动 R3F Player + Agent 只产出 SceneSpec / 交付自包含单文件 HTML / 无计划预览 / 文件理解(文档+gltf)+Player 为核心攻坚**。
+>
+> （已演进，见顶部说明）「数据驱动 R3F Player + Agent 只产出 SceneSpec」一项已改为「Agent 直接撰写自包含 HTML + Host 注入 model-viewer 运行时/内联资产」，文件理解仍为核心攻坚；其余决策不变。
 
-1. **M0** Monorepo 骨架（6 包，立即可见绿色构建）。
+1. **M0** Monorepo 骨架（6 包，立即可见绿色构建）。（已演进：现为 5 包，见顶部说明）
 2. **M1** `core` + 画布 + 预览（gltf 3D + 文档类）。
 3. **M2** Mock Agent 打通 ACP 全链路。
 4. **M3** 文件理解 + 上下文工程（文档 + gltf 渲染/部件）——核心攻坚。
-5. **M4** 自研 R3F Player + `scene.html` 注入，跑通"gltf+文档→自包含 3D HTML"主竖切。
+5. **M4** 自研 R3F Player + `scene.html` 注入，跑通"gltf+文档→自包含 3D HTML"主竖切。（架构已演进为 model-viewer + Agent 直写 HTML，见顶部说明）
 
 ---
 

@@ -4,6 +4,8 @@
 > 文档版本：v0.4 ｜ 状态：评审中
 > 定位：**空间化知识引擎**——领域聚焦"知识库管理 + 自动研究（auto research）"，但产物是 **3D 沉浸式 HTML（WebGL）**，支持 gltf 等模型。
 
+> **架构演进（2026-06）**：可靠性策略已从「数据驱动：Agent 只产 SceneSpec，预构建 R3F Player 渲染」改为「Agent 直接写自包含 HTML，Host 注入 model-viewer 运行时 + 内联 asset://{nodeId} 资产字节兜底」。产物仍离线自包含、内容寻址可缓存；@dsweave/player 包与 SceneSpec 契约已移除。下文据此更新。
+
 ---
 
 ## 1. 一句话定义
@@ -63,13 +65,12 @@ DSWeave 的护城河有两块：① **把一堆杂乱文件变成 Agent 能用�
 
 | 输出类型 | 产物 | 何时做 | 说明 |
 | --- | --- | --- | --- |
-| `scene.html` | **3D 沉浸式 HTML（WebGL）** | **MVP 首发** | 自研 R3F Player + SceneSpec → 自包含单文件，嵌 gltf + 文档热点，可旋转/漫游/点击 |
-| `report.html` | 平面自包含 HTML | 备选/降级 | 同一 Player 的 2D 模式（不需要 3D 时） |
-| `app.react` | React 工程（R3F） | 紧随其后 | 同一 Player 以工程/dist 形式交付，复杂交互 |
+| `scene.html` | **3D 沉浸式 HTML（WebGL）** | **MVP 首发** | Agent 直接写自包含 HTML（用 `<model-viewer>` 预览、`asset://{nodeId}` 引用源文件）；Host 后处理注入运行时 + 内联资产字节 → 自包含单文件，嵌 gltf + 文档热点，可旋转/漫游/点击 |
+| `report.html` | 平面自包含 HTML | 备选/降级 | 不需要 3D 时，Agent 按风格提示自由写偏 2D 报告的 HTML |
+| `app.react` | React 工程（R3F） | 紧随其后 | 以工程/dist 形式交付复杂交互的 React 应用 |
 | `custom` | 尽力而为 | 后期开放 | 实验性、不保证成功，默认隐藏 |
 
-> **数据驱动是可靠性的关键**：运行时是我们自研、CI 预构建并测试过的 **R3F Scene Player**；**Agent 只产出 `SceneSpec` 数据（放哪些模型、文档绑哪些部件作热点、配色布局），绝不写代码**。`scene.html` 能力把 SceneSpec+资产注入 Player bundle 导出单文件 HTML。把"会出错的代码"留在构建期 → 产物一定跑得起来、可缓存、Agent 任务有界。
-> 三种输出**共用同一个 Player 运行时**，区别只在交付封装（单文件 / 2D / 工程）。
+> **可靠性靠 Host 物理兜底**：**Agent 直接撰写自包含 HTML**——用 `<model-viewer>` 预览模型、用 `asset://{nodeId}` 引用源文件，专注内容组织与风格而非环境装配。**Host 是唯一兜底**：后处理时把经测试的 model-viewer 运行时注入页面，并把 `asset://{nodeId}` 内联为 data URI 资产字节。把"会出错的环境/资产装配"交给 Host 确定性后处理 → 产物离线自包含、内容寻址可缓存、一定跑得起来。
 
 ---
 
@@ -126,10 +127,10 @@ DSWeave 的护城河有两块：① **把一堆杂乱文件变成 Agent 能用�
 | M1 | 画布 | 文件拖入 + 预览(gltf 3D + 文档类) + 连线 + IR 存取 | 搭出"gltf+文档→scene.html"图并存取 |
 | M2 | 连接 | ACP 打通（前端↔Host↔Mock Agent） | 点 Start 收到 Mock 流式 update |
 | M3 | 文件理解 | 文档解析 + 分块/摘要/检索 + **gltf 渲染/元数据理解** | Agent 能基于文档作答/引用，并描述模型外观/部件 |
-| M4 | 主竖切 | R3F Scene Player + `scene.html` 能力（注入 SceneSpec→单文件） | **拖 gltf+文档、写组织方式，Agent 产出 SceneSpec → 可加载模型、可交互、带热点引用的自包含 3D HTML** |
+| M4 | 主竖切 | `scene.html` 能力（Agent 写 HTML → Host 注入运行时+内联资产→单文件） | **拖 gltf+文档、写组织方式，Agent 直接产出自包含 HTML → 可加载模型、可交互、带热点引用的自包含 3D HTML** |
 | M5 | 拓展+打磨 | `app.react` 工程交付 + 更多文件类型 + Tauri + 健壮性 | React 3D 工程输出可用；桌面包可运行 |
 
-**节奏**：M0–M2 打通链路；**M3 文件理解（文档+gltf）是核心攻坚**；M4 自研 Player + 出第一个真实 3D 产物（`scene.html`）；M5 解锁工程交付与产品化。
+**节奏**：M0–M2 打通链路；**M3 文件理解（文档+gltf）是核心攻坚**；M4 打通 HTML 产物后处理（运行时注入 + 资产内联）+ 出第一个真实 3D 产物（`scene.html`）；M5 解锁工程交付与产品化。
 
 ---
 
@@ -140,7 +141,7 @@ DSWeave 的护城河有两块：① **把一堆杂乱文件变成 Agent 能用�
 | 浏览器无法 spawn / 访问本地文件 | Node Host 桥接；预留 Tauri |
 | **文件解析/上下文质量不足（核心风险）** | 分块+摘要+检索；引用可追溯；按文件类型迭代 provider |
 | **gltf 理解/渲染复杂** | 用 model-viewer/three.js 离屏渲染 + 解析 glTF JSON；先固定几个机位 |
-| 生成的 3D HTML 跑不起来/性能差 | 数据驱动：CI 预构建的 R3F Player（固定、测试过），Agent 只填 SceneSpec；约束模型体量 |
+| 生成的 3D HTML 跑不起来/性能差 | Host 注入经测试的 model-viewer 运行时 + 纯文本校验回灌重试 + 约束模型体量 |
 | 大知识库塞爆上下文 | 检索式选片，而非全量塞入 |
 | 任意输出不可控 | 受限输出菜单（本次收敛） |
 | ACP 版本演进 | protocol 层封装隔离 |
@@ -156,10 +157,10 @@ DSWeave 的护城河有两块：① **把一堆杂乱文件变成 Agent 能用�
 4. **Agent 来源**：✅ 可插拔（Mock / 自建 / 外部如 Gemini CLI）。
 5. **领域聚焦**：✅ 知识库管理 + auto research，用 3D 表达做差异化。
 6. **输入**：✅ 仅文件；**gltf 模型与文档并列为一等输入**；核心功夫＝解析/渲染/喂上下文。
-7. **输出**：✅ **受限菜单**。MVP 首发 **`scene.html`（3D）**，`report.html` 为同 Player 的 2D 降级，次之 `app.react`(R3F 工程)，`custom` 保留但隐藏。
-8. **运行时/生成方式**：✅ **数据驱动的自研 R3F Scene Player（CI 预构建）+ Agent 只产出 SceneSpec**；默认交付**自包含单文件 HTML**。三种输出共用同一 Player。
+7. **输出**：✅ **受限菜单**。MVP 首发 **`scene.html`（3D）**，`report.html` 为 Agent 自由写的 2D 报告降级，次之 `app.react`(R3F 工程)，`custom` 保留但隐藏。
+8. **运行时/生成方式**：✅ **Agent 直接写自包含 HTML + Host 注入 model-viewer 运行时/内联 asset:// 资产**；默认交付**自包含单文件 HTML**。
 9. **计划预览**：✅ 移除。执行态实时展示 + 仅危险操作审批。
-10. **核心攻坚**：✅ **文件理解（文档解析 + gltf 理解）+ 上下文工程 + Scene Player + SceneSpec 生成**。
+10. **核心攻坚**：✅ **文件理解（文档解析 + gltf 理解）+ 上下文工程 + prompt 工程 + HTML 产物后处理（运行时注入/资产内联）**。
 
 ---
 
@@ -169,3 +170,4 @@ DSWeave 的护城河有两块：① **把一堆杂乱文件变成 Agent 能用�
 - `01-architecture.md`：系统拓扑、Monorepo、ACP 映射、数据流。
 - `02-technical-design.md`：节点图/IR、文件理解与上下文工程、输出注册表、协议、Schema。
 - `03-implementation-plan.md`：里程碑任务、逐包逐文件、验收。
+- `04-player.md`：**（已废弃）历史参考**——描述旧的 R3F Player + SceneSpec 数据驱动方案，现架构已改为 Agent 直接写 HTML + Host 后处理，仅作历史留存。
