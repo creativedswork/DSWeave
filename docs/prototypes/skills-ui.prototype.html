@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DSWeave · Skills UI 原型</title>
+<style>
+  :root{
+    --bg:#0a0a0a; --panel:#0a0a0aF2; --panel2:#171717;
+    --b800:#262626; --b700:#404040; --b900:#171717;
+    --t100:#f5f5f5; --t200:#e5e5e5; --t300:#d4d4d4; --t500:#737373; --t600:#525252;
+    --sky:#0284c7; --sky2:#0ea5e9; --fuchsia:#d946ef; --emerald:#10b981;
+    --rose:#e11d48; --amber:#f59e0b;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:
+      radial-gradient(1200px 600px at 75% -10%, #0c1b24 0%, transparent 60%),
+      var(--bg);
+    color:var(--t200);
+    font:13px/1.5 system-ui,-apple-system,"PingFang SC","Segoe UI",sans-serif;
+    overflow:hidden;
+  }
+  .app{display:flex;flex-direction:column;height:100vh}
+
+  /* ---------- Toolbar ---------- */
+  header{
+    display:flex;align-items:center;gap:12px;
+    border-bottom:1px solid var(--b800);background:#0a0a0a;
+    padding:10px 16px;flex:0 0 auto;
+  }
+  .logo{font-size:17px;font-weight:600;letter-spacing:-.01em;color:var(--t100)}
+  .tag{font-size:10px;color:var(--t600)}
+  .flowname{
+    margin-left:8px;width:160px;border:1px solid var(--b800);background:#171717;
+    border-radius:6px;padding:5px 8px;color:var(--t200);font-size:12px;outline:none;
+  }
+  .spacer{margin-left:auto}
+  .row{display:flex;align-items:center;gap:8px}
+  .sep{width:1px;height:20px;background:var(--b800);margin:0 4px}
+  .btn{border:1px solid var(--b700);color:var(--t200);background:transparent;
+    border-radius:6px;padding:6px 12px;font-size:12px;font-weight:500;cursor:pointer;transition:.15s}
+  .btn:hover{background:#1f1f1f}
+  .btn.primary{background:var(--sky);border-color:transparent;color:#fff}
+  .btn.primary:hover{background:var(--sky2)}
+  .btn.start{background:var(--emerald);border-color:transparent;color:#fff}
+  .btn.skills{border-color:#7c3aed80;color:#d8b4fe;background:#7c3aed1a;display:flex;gap:6px;align-items:center}
+  .btn.skills:hover{background:#7c3aed2e}
+  .dot{display:inline-block;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--fuchsia);
+    color:#fff;font-size:10px;font-weight:700;line-height:16px;text-align:center}
+
+  /* ---------- Stage ---------- */
+  .stage{position:relative;flex:1 1 auto;overflow:hidden}
+  .grid{position:absolute;inset:0;
+    background-image:radial-gradient(#ffffff0a 1px,transparent 1px);background-size:22px 22px}
+  .node{position:absolute;border-radius:12px;background:#0a0a0aF2;border:1px solid var(--b800);
+    box-shadow:0 10px 30px #0008;padding:12px;width:248px}
+  .node .pill{display:inline-block;border-radius:5px;padding:2px 7px;font-size:10px;font-weight:600;
+    text-transform:uppercase;letter-spacing:.03em}
+  .pill.src{background:#0ea5e91a;color:#7dd3fc;box-shadow:inset 0 0 0 1px #0ea5e94d}
+  .pill.mdl{background:#10b9811a;color:#6ee7b7;box-shadow:inset 0 0 0 1px #10b9814d}
+  .pill.out{background:#d946ef26;color:#f0abfc;box-shadow:inset 0 0 0 1px #d946ef4d}
+  .node h4{margin:8px 0 2px;font-size:13px;color:var(--t200);font-weight:600}
+  .node .meta{font-size:10px;color:var(--t500);text-transform:uppercase;letter-spacing:.03em}
+  .node.output{border-color:#d946ef66;width:256px}
+  .lbl{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--t500);margin:10px 0 4px}
+  select,textarea{width:100%;border:1px solid var(--b700);background:#171717;border-radius:6px;
+    padding:7px 8px;color:var(--t100);font-size:12px;outline:none;font-family:inherit}
+  textarea{resize:none;font-size:11px;color:var(--t300)}
+  /* skill chips inside output node */
+  .chiparea{margin-top:10px;border-top:1px dashed var(--b800);padding-top:8px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  .chip{display:flex;align-items:center;gap:5px;border-radius:999px;padding:3px 9px;font-size:11px;cursor:pointer;
+    border:1px solid var(--b700);color:var(--t300);background:#171717}
+  .chip.on{background:#7c3aed24;border-color:#a78bfa80;color:#ddd6fe}
+  .chip.suggest{border-style:dashed;color:var(--t500);background:transparent}
+  .chip .x{opacity:.6}
+  .chip.add{border-style:dashed;color:var(--t500)}
+  /* edges */
+  svg.edges{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .edgelabel{position:absolute;transform:translate(-50%,-50%);background:#0a0a0a;border:1px solid var(--b800);
+    border-radius:6px;padding:2px 8px;font-size:10px;color:var(--t300)}
+
+  /* ---------- Drawer ---------- */
+  .scrim{position:absolute;inset:0;background:#0008;backdrop-filter:blur(1px);opacity:0;pointer-events:none;transition:.2s;z-index:30}
+  .scrim.show{opacity:1;pointer-events:auto}
+  .drawer{position:absolute;top:0;right:0;height:100%;width:380px;transform:translateX(100%);
+    transition:.22s cubic-bezier(.4,0,.2,1);z-index:40;
+    background:#0a0a0aF7;backdrop-filter:blur(8px);border-left:1px solid var(--b800);
+    display:flex;flex-direction:column;box-shadow:-20px 0 50px #000a}
+  .drawer.show{transform:none}
+  .drawer .dh{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--b800)}
+  .drawer .dh h2{margin:0;font-size:14px;color:var(--t100);font-weight:600;display:flex;align-items:center;gap:8px}
+  .drawer .controls{display:flex;gap:8px;padding:12px 16px;border-bottom:1px solid var(--b800);position:relative}
+  .mini{border:1px solid var(--b700);background:#171717;border-radius:6px;padding:6px 10px;font-size:12px;color:var(--t200);cursor:pointer}
+  .mini.accent{border-color:#7c3aed80;color:#d8b4fe;background:#7c3aed1a}
+  .menu{position:absolute;top:46px;left:16px;width:230px;background:#171717;border:1px solid var(--b700);
+    border-radius:10px;box-shadow:0 14px 40px #000a;overflow:hidden;z-index:50;display:none}
+  .menu.show{display:block}
+  .menu button{display:flex;width:100%;gap:9px;align-items:center;background:transparent;border:0;color:var(--t200);
+    padding:9px 12px;font-size:12px;cursor:pointer;text-align:left}
+  .menu button:hover{background:#262626}
+  .menu .ic{width:16px;text-align:center;opacity:.8}
+  .menu .hint{font-size:10px;color:var(--t600);margin-left:auto}
+  .notebar{margin:10px 16px 0;padding:8px 11px;border:1px solid #7c3aed40;background:#7c3aed12;border-radius:9px;
+    font-size:10.5px;line-height:1.5;color:#c4b5fd}
+  .list{overflow:auto;padding:12px 16px;display:flex;flex-direction:column;gap:10px}
+  .card{border:1px solid var(--b800);border-radius:10px;background:#0f0f0f;padding:11px 12px}
+  .card .top{display:flex;align-items:center;gap:8px}
+  .card .nm{font-size:13px;color:var(--t100);font-weight:600}
+  .src-badge{font-size:9px;text-transform:uppercase;letter-spacing:.04em;border-radius:4px;padding:2px 6px;font-weight:700}
+  .src-builtin{background:#3f3f46;color:#d4d4d8}
+  .src-git{background:#1e3a8a40;color:#93c5fd}
+  .src-zip{background:#78350f40;color:#fcd34d}
+  .card .desc{font-size:11px;color:var(--t500);margin:5px 0 8px;line-height:1.45}
+  .card .foot{display:flex;align-items:center;gap:10px;font-size:10px;color:var(--t600)}
+  .card .foot a{color:#7dd3fc;text-decoration:none}
+  /* toggle */
+  .tg{margin-left:auto;width:34px;height:19px;border-radius:999px;background:#3f3f46;position:relative;cursor:pointer;transition:.15s}
+  .tg.on{background:var(--emerald)}
+  .tg::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:#fff;transition:.15s}
+  .tg.on::after{left:17px}
+
+  /* ---------- Install modal ---------- */
+  .modalwrap{position:absolute;inset:0;display:none;align-items:center;justify-content:center;z-index:60;background:#000a}
+  .modalwrap.show{display:flex}
+  .modal{width:540px;max-height:84%;overflow:auto;background:#0c0c0c;border:1px solid var(--b700);border-radius:14px;
+    box-shadow:0 30px 80px #000c}
+  .modal .mh{padding:16px 18px;border-bottom:1px solid var(--b800)}
+  .modal .mh h3{margin:0 0 3px;font-size:15px;color:var(--t100)}
+  .modal .mh p{margin:0;font-size:11px;color:var(--t500)}
+  .mb{padding:16px 18px;display:flex;flex-direction:column;gap:14px}
+  .field label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--t500);margin-bottom:5px}
+  .field input{width:100%;border:1px solid var(--b700);background:#171717;border-radius:6px;padding:8px 10px;color:var(--t100);font-size:12px;outline:none}
+  .field .two{display:flex;gap:8px}
+  .preview{border:1px solid var(--b800);border-radius:10px;overflow:hidden}
+  .preview .pt{padding:7px 11px;background:#151515;border-bottom:1px solid var(--b800);font-size:10px;color:var(--t500);
+    text-transform:uppercase;letter-spacing:.04em;display:flex;justify-content:space-between}
+  .preview pre{margin:0;padding:11px;font:11px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--t300);
+    background:#0a0a0a;white-space:pre-wrap;max-height:150px;overflow:auto}
+  .tree{padding:9px 12px;font:11px/1.7 ui-monospace,Menlo,monospace;color:var(--t300)}
+  .warn{display:flex;gap:9px;align-items:flex-start;border:1px solid #f59e0b55;background:#f59e0b12;border-radius:9px;
+    padding:9px 11px;font-size:11px;color:#fcd34d}
+  .scope{display:flex;gap:8px}
+  .scope .opt{flex:1;border:1px solid var(--b700);border-radius:8px;padding:8px 10px;font-size:11px;cursor:pointer;color:var(--t300)}
+  .scope .opt.sel{border-color:#7c3aed99;background:#7c3aed1a;color:#ddd6fe}
+  .scope .opt small{display:block;color:var(--t600);font-size:10px;margin-top:2px}
+  .mf{padding:13px 18px;border-top:1px solid var(--b800);display:flex;justify-content:flex-end;gap:9px}
+
+  .caption{position:absolute;left:16px;bottom:14px;font-size:11px;color:var(--t600);z-index:5}
+  .legend{position:absolute;left:16px;top:14px;font-size:10px;color:var(--t600);z-index:5;
+    background:#0a0a0aCC;border:1px solid var(--b800);border-radius:8px;padding:6px 10px}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Toolbar -->
+  <header>
+    <span class="logo">DSWeave</span>
+    <span class="tag">空间化知识引擎</span>
+    <input class="flowname" value="引擎拆解知识场景" />
+    <div class="spacer"></div>
+    <div class="row">
+      <button class="btn">+ 文件</button>
+      <button class="btn">+ 文件夹</button>
+      <button class="btn">+ 输出节点</button>
+      <span class="sep"></span>
+      <button class="btn skills" onclick="openDrawer()">✦ Skills <span class="dot">3</span></button>
+      <span class="sep"></span>
+      <button class="btn">新建</button>
+      <button class="btn">加载</button>
+      <button class="btn primary">保存</button>
+      <span class="sep"></span>
+      <button class="btn start">▶ Start</button>
+    </div>
+  </header>
+
+  <!-- Stage -->
+  <div class="stage">
+    <div class="grid"></div>
+    <div class="legend">原型 · 非真实数据　点击 ✦Skills 打开库 · 激活开关 = 进 / 不进 Agent catalog</div>
+
+    <!-- edges -->
+    <svg class="edges">
+      <path d="M 250 150 C 360 150 360 330 470 330" stroke="#3f3f46" stroke-width="1.5" fill="none"/>
+      <path d="M 250 380 C 360 380 360 350 470 348" stroke="#3f3f46" stroke-width="1.5" fill="none"/>
+    </svg>
+    <div class="edgelabel" style="left:360px;top:240px">解释每个部件的功能</div>
+    <div class="edgelabel" style="left:360px;top:412px">作为主视觉模型</div>
+
+    <!-- source node: doc -->
+    <div class="node" style="left:40px;top:96px">
+      <span class="pill src">来源</span>
+      <h4>产品手册.pdf</h4>
+      <div class="meta">pdf · 已理解 · 24 分块</div>
+    </div>
+
+    <!-- source node: model -->
+    <div class="node" style="left:40px;top:326px">
+      <span class="pill mdl">模型</span>
+      <h4>engine.glb</h4>
+      <div class="meta">gltf · 已理解 · 12 部件</div>
+    </div>
+
+    <!-- output node with skills -->
+    <div class="node output" style="left:472px;top:250px">
+      <span class="pill out">输出</span>
+      <span style="font-size:12px;color:var(--t200);font-weight:500;margin-left:6px">目标产物</span>
+      <label class="lbl">输出类型（受限菜单）</label>
+      <select><option>scene.html — 3D 沉浸式场景</option><option>report.html — 知识报告</option></select>
+      <label class="lbl">软细节（自然语言）</label>
+      <textarea rows="3">做成可旋转漫游的引擎拆解场景，点部件出说明卡。</textarea>
+    </div>
+
+    <div class="caption">节点只描述「输出类型 + 软细节」。Skills 不在节点上手选——库里激活的 skill 会装配进 Agent 的 catalog，由 LLM 渐进式披露按需自动调用。</div>
+
+    <!-- Drawer (A: library mgmt) -->
+    <div class="scrim" id="scrim" onclick="closeAll()"></div>
+    <aside class="drawer" id="drawer">
+      <div class="dh">
+        <div>
+          <h2>✦ Skills 库</h2>
+          <p style="margin:2px 0 0;font-size:10px;color:var(--t600)">安装 + 激活的唯一控制点</p>
+        </div>
+        <button class="btn" style="padding:3px 9px" onclick="closeAll()">✕</button>
+      </div>
+      <div class="controls">
+        <button class="mini accent" onclick="toggleMenu(event)">+ 添加 ▾</button>
+        <button class="mini" style="margin-left:auto" title="激活集默认全局共享，可在当前工作流覆盖">激活范围：全局 ▾</button>
+        <div class="menu" id="addmenu">
+          <button onclick="openInstall()"><span class="ic">📁</span>导入本地文件夹<span class="hint">最常用</span></button>
+          <button onclick="openInstall()"><span class="ic">🗜️</span>上传 .zip 包<span class="hint">离线</span></button>
+          <button onclick="openInstall()"><span class="ic">🔗</span>Git URL…<span class="hint">可更新</span></button>
+          <button onclick="openInstall()"><span class="ic">✦</span>精选库（一键装）</button>
+          <button onclick="openInstall()"><span class="ic">⤴</span>从产物提升为 Skill</button>
+        </div>
+      </div>
+      <div class="notebar">激活的 Skill 会装配进 Agent 的 skill catalog（仅 name+description），由 LLM 按需自动读取全文并调用——渐进式披露，无需逐个工作流手选。</div>
+      <div class="list">
+        <div class="card">
+          <div class="top">
+            <span class="nm">product-showcase</span>
+            <span class="src-badge src-builtin">内置</span>
+            <span class="tg on" onclick="this.classList.toggle('on')"></span>
+          </div>
+          <div class="desc">gltf 模型 360° 展示 + 部件标注热点；适用 scene.html。</div>
+          <div class="foot"><span>v1.0</span><span>·</span><span>3 个文件</span></div>
+        </div>
+        <div class="card">
+          <div class="top">
+            <span class="nm">hotspot-annotate</span>
+            <span class="src-badge src-git">git</span>
+            <span class="tg on" onclick="this.classList.toggle('on')"></span>
+          </div>
+          <div class="desc">为模型部件生成可点击热点卡片，联动文档分块。</div>
+          <div class="foot"><span>v1.2</span><span>·</span><a href="#">github.com/dsweave/skills</a><span>·</span><a href="#">检查更新</a></div>
+        </div>
+        <div class="card">
+          <div class="top">
+            <span class="nm">knowledge-graph-3d</span>
+            <span class="src-badge src-git">git</span>
+            <span class="tg on" onclick="this.classList.toggle('on')"></span>
+          </div>
+          <div class="desc">把文档/实体关系渲染成 3D 力导向知识图谱。</div>
+          <div class="foot"><span>v0.8</span><span>·</span><a href="#">github.com/acme/kg3d</a></div>
+        </div>
+        <div class="card" style="opacity:.7">
+          <div class="top">
+            <span class="nm">timeline-scene</span>
+            <span class="src-badge src-zip">zip</span>
+            <span class="tg" onclick="this.classList.toggle('on')"></span>
+          </div>
+          <div class="desc">时间线漫游场景：事件沿轴排布 + 热点。（未启用）</div>
+          <div class="foot"><span>v2.0</span><span>·</span><span>含脚本 2 个 ⚠</span></div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Install / trust modal -->
+    <div class="modalwrap" id="modal">
+      <div class="modal">
+        <div class="mh">
+          <h3>安装 Skill · 信任确认</h3>
+          <p>从 Git 仓库安装。安装前请审阅 SKILL.md 与目录内容（可能含可执行脚本）。</p>
+        </div>
+        <div class="mb">
+          <div class="field">
+            <label>来源（Git URL）</label>
+            <input value="https://github.com/dsweave/skills" />
+            <div class="two" style="margin-top:8px">
+              <div style="flex:1"><label>分支 / Tag</label><input value="main" /></div>
+              <div style="flex:1"><label>子目录（可选）</label><input value="hotspot-annotate" placeholder="/" /></div>
+            </div>
+          </div>
+          <div class="preview">
+            <div class="pt"><span>SKILL.md · frontmatter + 摘要</span><span>只读预览</span></div>
+            <pre>---
+name: hotspot-annotate
+description: 为 gltf 部件生成可点击热点卡片，联动文档分块。
+outputTypes: [scene.html]
+triggers: [部件, 热点, 标注, 拆解]
+---
+## 何时使用
+当输出含 gltf 模型且需要"点部件看说明"时…</pre>
+          </div>
+          <div class="preview">
+            <div class="pt"><span>目录内容</span><span>4 项</span></div>
+            <div class="tree">hotspot-annotate/<br>├─ SKILL.md<br>├─ skeleton.html<br>├─ snippets/hotspot.css<br>└─ scripts/build-index.js　<span style="color:#fcd34d">⚠ 可执行</span></div>
+          </div>
+          <div class="warn">⚠ 该 Skill 含 1 个可执行脚本。脚本仅在 Agent 主动调用时运行，并受 DSWeave 审批闸门约束。请确认来源可信。</div>
+          <div class="field">
+            <label>安装作用域</label>
+            <div class="scope">
+              <div class="opt sel">项目级<small>.dsweave/skills · 随仓库</small></div>
+              <div class="opt">用户级<small>~/.dsweave/skills · 跨项目</small></div>
+            </div>
+          </div>
+        </div>
+        <div class="mf">
+          <button class="btn" onclick="closeModal()">取消</button>
+          <button class="btn primary" onclick="closeModal()">信任并安装</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function openDrawer(){document.getElementById('drawer').classList.add('show');document.getElementById('scrim').classList.add('show')}
+  function closeAll(){document.getElementById('drawer').classList.remove('show');document.getElementById('scrim').classList.remove('show');document.getElementById('addmenu').classList.remove('show')}
+  function toggleMenu(e){e.stopPropagation();document.getElementById('addmenu').classList.toggle('show')}
+  function openInstall(){document.getElementById('addmenu').classList.remove('show');document.getElementById('modal').classList.add('show')}
+  function closeModal(){document.getElementById('modal').classList.remove('show')}
+  // initial state via ?view=
+  const v=new URLSearchParams(location.search).get('view');
+  if(v==='drawer'||v==='add'||v==='install'){openDrawer()}
+  if(v==='add'){document.getElementById('addmenu').classList.add('show')}
+  if(v==='install'){document.getElementById('modal').classList.add('show')}
+</script>
+</body>
+</html>

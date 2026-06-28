@@ -180,6 +180,8 @@ graph LR
 
 ## 6. 新增 ACP 后端 · Gemini CLI（`gemini --acp`）
 
+> ⚠️ **状态更新（2026-06）**：**Gemini CLI 已于 2026-06-18 sunset，由 Antigravity CLI（`agy`）取代**；扩展经 `agy plugin import gemini` 迁移，workspace skills 从 `.gemini/skills/` 迁至开放标准 `.agents/skills/`，`GEMINI.md` 上下文文件仍兼容。本节「换后端=换一条 spawn 命令」的结论**依然成立**（Antigravity 同样说官方 ACP/stdio），落地时把 spawn 命令由 `gemini --acp` 换成对应的 `agy` ACP 命令、并据其文档确认参数即可；§7 的 skill 目录亦优先采用 `.agents/skills/`。本节其余内容作为历史设计保留，接入前以 Antigravity 最新文档为准。
+
 ### 6.1 结论：换后端 = 换一条 spawn 命令
 
 Gemini CLI **原生支持官方 ACP**（[ACP Mode](https://geminicli.com/docs/cli/acp-mode/)：`gemini --acp`，JSON-RPC 2.0 over stdio，`PROTOCOL_VERSION = 1`，含 `initialize` / `session/new` / `prompt` / `request_permission` / fs 代理）。这与 Claude Code（`claude-agent-acp`）说的是**同一套官方 ACP**。因此 §2.3 的关键决策一（「stdio 边界说官方 ACP，翻译收敛在一个内部 Agent」）天然复用——新增 Gemini 后端**不需要任何新的协议翻译**，只是把 spawn 的命令从 `npx -y @agentclientprotocol/claude-agent-acp` 换成 `gemini --acp`。
@@ -223,3 +225,152 @@ graph LR
 - [x] 切换 Mock ↔ scene ↔ Claude ↔ **Gemini**（`DSWEAVE_AGENT` / `connectorForKind`），DSWeave 前端零改代码。
 - [ ] **阶段 A 探针**（`pnpm gemini:probe`）：Host 用官方 ACP SDK spawn `gemini --acp`，`spawn → initialize → session/new → session/prompt`（Gemini 经 fs 工具写哨兵文件）。需操作者本机已安装并登录 Gemini CLI（沙箱内不可联网实测，留运行时验收）。
 - [ ] **真模型竖切（操作者本机）**：`DSWEAVE_AGENT=gemini pnpm dev:host` + `pnpm dev:web`，拖入 gltf+文档 → Gemini 经官方 ACP 产出自包含 `index.html` → Host `validateHtml` 校验、`scene.html` 注入 → 自包含单文件 3D HTML。
+
+---
+
+## 7. Skills · 给 Agent 注入可复用产出配方（设计中）
+
+> 文档版本：v0.3 新增 ｜ 配套原型：`docs/prototypes/skills-ui.prototype.html`（自包含可双击）｜ 探针：`pnpm skills:probe`
+
+### 7.0 定位：Skill = 产出配方 + 领域知识包，**不是新工具**
+
+DSWeave 的 Agent 已收口到「写 `index.html`」这一个交付物（§2.4 方案 A），且坚持「前端 / `bridge.ts` / 内部协议 / `CapabilityRegistry` 零改动」。因此 Skill **不做成新的工具/动词**（那会重新引入被刻意避开的 MCP 表面），而是**可复用的「怎么把某类知识编排成某种 3D/HTML 场景」的 know-how**——模板 prompt 片段 + 参考骨架 + 素材 + 触发条件。这与 Claude / Gemini Agent Skills（`SKILL.md` + frontmatter `description` + 渐进披露）哲学一致，且天然 **model-agnostic**（Claude / Gemini / dscode 通吃）。
+
+示例：`knowledge-graph-3d`（关系→3D 力导向图）、`timeline-scene`（时间线漫游）、`product-showcase`（gltf 360° + 部件热点）、`report-academic`（`report.html` 学术排版）。
+
+### 7.1 单一控制点：库管理 + 激活（不做 per-output 手选，也不做 Host 自动路由）
+
+Agent Skills 本就是 **model-invoked**——所有激活的 skill 默认进入 Agent 的 skill catalog（仅 name+description），LLM 按 `description` **自主触发**，触发时才 `fs/read` 读全文。这就是渐进式披露。因此：
+
+- ❌ **不做 per-output 手选**：让用户在输出节点上再挑一遍 skill，是替 LLM 做它本职的事，冗余且违背「用户只做三件事」。
+- ❌ **不做 Host 关键词自动路由**：LLM 自己就是路由器，Host 再加一层关键词匹配是多余中间层。
+- ✅ **唯一控制点 = 库管理里的「激活/停用」开关**。
+
+| 维度 | 设计 |
+| --- | --- |
+| **控制点** | 顶栏 `✦ Skills` → 抽屉：安装 / **激活·停用** / 删除 / 更新（角标=已激活数） |
+| **激活语义** | 激活 = Host 把该 skill **物化进 session cwd**（→ 进 catalog）；停用 = 不物化 |
+| **作用域** | **全局激活为默认**（用户级偏好，所有 flow 共享）+ `.flow.json` **可选覆盖**（重度用户精确控制） |
+| **prompt** | **不塞 skill 正文**；最多保留一行指针「已装配 N 个 skill」，探针证明原生发现成立后此行亦可省 |
+| **Host 新表面** | 仅库管理（安装/激活/删除）需 `skills/*` 协议方法；激活集→物化→产出链路**零协议**，复用 §2.4「写文件」收口与 cwd 沙箱 |
+
+> 关键校正：**激活 ≠ 把 skill 正文写进 prompt**。若把全文灌进 prompt，既 token 爆炸又恰好**反**了渐进式披露（把"按需才读的全文"提前全给了）。正确做法是物化进 cwd 让 agent 原生发现，catalog 只含 frontmatter。
+
+### 7.2 Skill 解剖与作用域
+
+```
+skills/knowledge-graph-3d/
+├─ SKILL.md         # frontmatter: id/name/description/outputTypes/triggers；正文: 怎么做
+├─ skeleton.html    # 可选：参考骨架，Agent 按需读
+├─ snippets/        # 可选：可复用 <script>/<style> 片段
+└─ assets/          # 可选：素材（HDR/图标 sprite/字体子集）
+```
+
+`SKILL.md` frontmatter 约定：`name`、`description`（**最关键**——LLM 据此自主决定何时触发，写清触发条件）、`outputTypes: [scene.html]`（与 `capabilities/output-types.ts` 对齐）。`description` 写得越具体，LLM 触发越准——这取代了任何 Host 侧路由。
+
+**三级作用域合并**（仿 Claude/Gemini）：内置（`packages/host/skills/`） < 用户级（`~/.dsweave/skills/`） < 项目级（`.dsweave/skills/`，**默认安装到此**，随仓库走、团队共享）。同 id 高优先级覆盖。
+
+### 7.3 注入接缝：复用两个现成口子 + `skillsDir` per-backend
+
+```mermaid
+graph LR
+  SRC[Skill 源<br/>内置/用户/项目三级] -->|激活集| MAT[Host 物化]
+  MAT -->|拷进 cwd/&lt;backend.skillsDir&gt;/| CWD[(session cwd)]
+  CWD -->|原生发现 catalog + 渐进披露| AG[ACP Agent]
+  AG -->|LLM 自主触发| AG
+  PR[buildScenePrompt<br/>一行指针: 已装配 N 个 skill] -.可选兜底.-> AG
+  AG -->|写 index.html| OUT[scene.html 注入运行时/资产]
+```
+
+1. **接缝② cwd 物化（主路径）**：在 `acp/acp-agent.ts` 建 cwd 之后、`session.init` 之前，把**激活集**拷进 `cwd/<backend.skillsDir>/<id>/`，复用真实编码 agent 的**原生发现 + 渐进披露**（启动只读 frontmatter 建 catalog，LLM 触发时才经 `fs/read_text_file` 读全文）。
+2. **接缝① Prompt 层（可选兜底）**：`SceneContext` 增 `skills` 字段；`buildScenePrompt` 至多追加**一行指针**（"本任务已装配 N 个 skill，按需运用"）——**不重复塞正文**，避免与 agent 原生 catalog 双重注入。探针证明原生发现成立后此行可省。
+3. **接缝③ Skill 资产内联（后置）**：素材走 `scene.html` 内联管线，命名空间 `asset://skill:<id>/<file>`；需扩展 `validateHtml` 白名单与 `scene-html.ts`（唯一需碰能力实现处）。
+
+`AcpBackendSpec` 增加 `skillsDir`（per-backend，因各家约定不同，不可写死）：
+
+| 后端 | `skillsDir` | 用户级 |
+| --- | --- | --- |
+| Claude（`claude-agent-acp`） | `.claude/skills` | `~/.claude/skills` |
+| Gemini / Antigravity | `.agents/skills`（开放标准，优先）或 `.gemini/skills` | `~/.agents/skills` |
+| dscode（内置） | 自定（建议直接采 `.agents/skills`） | — |
+
+### 7.4 发现机制核对与探针（决定「纯目录」vs「目录+指针」）
+
+已核对（2026-06）：
+
+- **Claude Agent SDK**（`claude-agent-acp` 底层）在**省略 `settingSources` 时默认加载 user+project**，即默认扫 `cwd/.claude/skills/`（及父目录到 repo root）。⇒ 纯目录方案**理论成立**。
+- 兜底：adapter PR #406 起支持 `session/new` 的 `_meta.additionalRoots` → 映射到 Claude `additionalDirectories`，可**显式注入** skill 目录根，不依赖 cwd 推断。
+- ⚠️ **Gemini CLI 已于 2026-06-18 sunset → Antigravity（`agy`）**，skills 迁至 `.agents/skills/`；§6 的 Gemini 接入需另行评估。
+
+**探针 `pnpm skills:probe`**（`packages/host/src/skills-probe.ts`，沙箱内不可联网实测，本机跑）：在临时 cwd 写 `.claude/skills/dsweave-probe/SKILL.md`，口令 nonce **只写进 SKILL.md、绝不进 prompt**；prompt 仅引导「能看到 dsweave-probe 技能就用它并回它给的口令，否则回 NO_SKILL」。判定：
+
+- 回复含 nonce → `SKILLS_PROBE_OK ✅` 原生发现成立 → 走**纯目录**（+ 一行指针）。
+- 回复 `NO_SKILL` → `SKILLS_PROBE_NEGATIVE ❌` → 改用 `SKILLS_PROBE_ROOTS=1`（验证 `_meta.additionalRoots` 兜底）或「目录 + prompt 指针」。
+- 余额不足 → `INCONCLUSIVE ⚠️`（同 m4b-probe 计费降级语义）。
+
+### 7.5 安装来源矩阵与信任流（A 层）
+
+| 来源 | 机制 | 取舍 |
+| --- | --- | --- |
+| **导入本地文件夹**（首推） | 复用现有 `webkitdirectory`（`Toolbar` 的 `+文件夹`） | 零新轮子；开发期最常用 |
+| **上传 .zip** | Host 解压到作用域目录 | 离线分发 |
+| **Git URL**（带 ref / 子目录） | Host `git clone`（联网 → 走 `request_permission`），记录 repo+ref 以「检查更新」 | 可更新、版本化、协作 |
+| **精选库一键装** | 内置精选 skill 清单 | 降门槛 |
+| **从产物提升为 Skill** | 把这次的好产出抽象成 skill | 呼应「产物提升为 source 节点」闭环，差异化亮点 |
+
+**信任流（zip/git 必经）**：安装前弹预览 = `SKILL.md` frontmatter + 目录清单（标红可执行脚本）+ 安全提示 + 作用域单选（默认项目级）。脚本仅在 Agent 主动调用时运行且受审批闸门约束。原则：把 skill 当依赖——装前读 `SKILL.md`、pin 版本、优先项目级限制影响面。
+
+### 7.6 协议方法（仅库管理新增；激活→产出链路零协议）
+
+| 方法 | 方向 | 语义 |
+| --- | --- | --- |
+| `skills/list` | web → Host | 列出三级作用域已发现 skill（含来源/版本/激活态） |
+| `skills/install` | web → Host | 安装（source: folder/zip/git/registry/promote）+ 信任确认结果 + 作用域；git 触发 `request_permission`（网络） |
+| `skills/setActive` | web → Host | 激活/停用某 skill（含范围：全局 / 当前 flow） |
+| `skills/remove` | web → Host | 删除某 skill |
+
+> 激活集落地：全局激活存用户级偏好；`.flow.json` 可记 `activeSkills` 覆盖集。运行时由 Host 据激活集物化进 cwd，**不新增产出侧协议**。
+
+### 7.7 UI（贴合现有深色主题，见原型）
+
+- **顶栏**：`Toolbar` 在 `+ 输出节点` 旁加 `✦ Skills`（角标=**已激活数**）→ 打开右侧抽屉（复用 `Inspector` 浮层风格）。
+- **抽屉（唯一控制点）**：副标题「安装 + 激活的唯一控制点」；`+ 添加 ▾`（5 来源）+ 「激活范围：全局 ▾」+ 紫色说明条（激活=进 catalog，LLM 渐进披露自动调用）+ skill 卡片（名称/来源徽标/描述/版本/**激活开关**/检查更新）。
+- **安装弹窗**：Git URL + ref + 子目录 + `SKILL.md` 只读预览 + 目录清单（脚本告警）+ 作用域单选（默认项目级）。
+- **输出节点**：**保持极简**，只有「输出类型 + 软细节」，**不放 skill 预选**——skill 由库激活后自动装配，LLM 自主选用。
+- **运行时反馈**：执行时复用 `session/update`，log 打「已触发 Skill: x」，agent 读 `SKILL.md` 经 `onToolCall → tool-call` 卡片展示——即"本次实际用了哪些 skill"，比预选更有信息量。
+
+原型四态截图：
+
+![主界面 · 节点保持极简，skill 由库激活后自动装配](./prototypes/shot-main.png)
+![Skills 库抽屉 · 安装+激活的唯一控制点](./prototypes/shot-drawer.png)
+![添加来源下拉](./prototypes/shot-add.png)
+![安装信任确认](./prototypes/shot-install.png)
+
+### 7.8 渐进落地
+
+| 阶段 | 内容 | 验收 |
+| --- | --- | --- |
+| **S0（已完成）** | 发现探针 `skills:probe` + UI 原型 + 本设计章节 | 探针编译通过；原型可双击 |
+| **S1** | 内置 1–2 skill，固定物化进 cwd（接缝②最小版），无 UI | 开/关 skill 对比，产出质量明显提升 |
+| **S2** | skill 目录约定 + loader（解析 frontmatter）+ `AcpBackendSpec.skillsDir` + 据激活集物化进 cwd | agent 原生发现 `cwd/.claude/skills/<id>/SKILL.md`、LLM 自主触发并产出 |
+| **S3** | 库管理 UI（抽屉/安装/信任/激活开关）+ `skills/*` 协议方法 + 三级作用域 + 全局/flow 激活集 + 资产内联（接缝③） | git/zip/文件夹装；激活即生效；skill 自带 HDR/字体内联进自包含 HTML |
+| **S4** | skill 分享/市场 + 「产物提升为 skill」闭环 | 形成 skill 生产闭环 |
+
+### 7.9 风险
+
+| 风险 | 应对 |
+| --- | --- |
+| token 膨胀 | catalog 只含 name+description（每个几十 token），正文走 cwd 按需读；激活几十个 skill 也仅数百 token |
+| 与原生 catalog 双重注入 | 激活=物化进 cwd（不塞正文进 prompt）；探针确认发现成立后 prompt 指针亦可省 |
+| skill 骨架触发 `validateHtml` 拦截 | 资产命名空间 `asset://skill:<id>/*` 同步进白名单（S3） |
+| 第三方 skill 含恶意脚本 | 安装信任流 + 项目级限制 + 脚本仅审批后运行 |
+| 各后端发现机制差异 | `skillsDir` per-backend + `_meta.additionalRoots` 兜底 + prompt 指针 |
+| Gemini sunset | skill 源优先开放标准 `.agents/skills`，接 Antigravity 零改 |
+
+### 7.10 验收
+
+- [x] **发现探针就绪**（`pnpm skills:probe`，`packages/host/src/skills-probe.ts`）：零泄漏判定（nonce 仅入 SKILL.md），编译通过。**本机真跑待操作者执行**（沙箱内不可联网）。
+- [x] **UI 原型**（`docs/prototypes/skills-ui.prototype.html`）：自包含、四态可交互、对齐现有深色主题。
+- [ ] **S1**：内置 skill 固定物化进 cwd（接缝②最小版），开/关对比产出质量。
+- [ ] **S2**：cwd 物化 + `AcpBackendSpec.skillsDir` + 据激活集物化，agent 原生发现并自主触发。
+- [ ] **S3**：库管理 UI（激活开关）+ `skills/*` 协议方法 + 全局/flow 激活集 + 资产内联（接缝③）。
