@@ -18,8 +18,6 @@ export interface ServerOptions {
   port: number;
   /** 沙箱工作目录（产物落盘根）。 */
   workingDir?: string;
-  /** 预构建 Player 单文件 HTML 路径（缺省 <cwd>/packages/player/dist/index.html）。 */
-  playerDistPath?: string;
   /** Agent 连接策略；缺省进程内 Mock。 */
   agentConnector?: AgentConnector;
   /** 能力注册表；缺省 scene.html。 */
@@ -62,7 +60,7 @@ export function startServer(options: ServerOptions): Promise<RunningServer> {
   const { port, verbose = true } = options;
   const workingDir = options.workingDir ?? process.cwd();
 
-  const artifacts = new ArtifactStore({ rootDir: workingDir, playerDistPath: options.playerDistPath });
+  const artifacts = new ArtifactStore({ rootDir: workingDir });
   const capabilities = options.capabilities ?? createDefaultCapabilityRegistry();
   // 跨连接共享文件理解服务，使内容寻址缓存得以复用，并供能力解析资产/分块。
   const understanding = new UnderstandingService();

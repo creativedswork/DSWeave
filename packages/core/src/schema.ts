@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import type { FlowGraph } from './model.js';
-import type { SceneSpec } from './scene-spec.js';
 import type { Understanding } from './model.js';
 
 export const zFileType = z.enum([
@@ -70,59 +69,6 @@ export const zFlowGraph = z.object({
     .optional(),
 });
 
-const zTransform = z.object({
-  position: z.tuple([z.number(), z.number(), z.number()]).optional(),
-  rotation: z.tuple([z.number(), z.number(), z.number()]).optional(),
-  scale: z.union([z.number(), z.tuple([z.number(), z.number(), z.number()])]).optional(),
-});
-
-export const zSceneSpec = z.object({
-  version: z.literal(1),
-  theme: z.object({ palette: z.string(), style: z.string() }),
-  layout: z.enum(['single-focus', 'gallery']),
-  models: z.array(
-    z.object({
-      nodeId: z.string(),
-      assetRef: z.string(),
-      placement: zTransform.optional(),
-      autoRotate: z.boolean().optional(),
-    }),
-  ),
-  images: z
-    .array(
-      z.object({
-        nodeId: z.string(),
-        assetRef: z.string(),
-        placement: zTransform.optional(),
-        width: z.number().optional(),
-        label: z.string().optional(),
-      }),
-    )
-    .optional()
-    .default([]),
-  hotspots: z.array(
-    z.object({
-      modelNodeId: z.string(),
-      part: z.string(),
-      title: z.string(),
-      bodyChunkIds: z.array(z.string()),
-    }),
-  ),
-  panels: z.array(z.object({ title: z.string(), chunkIds: z.array(z.string()) })),
-  connectors: z
-    .array(
-      z.object({
-        fromNodeId: z.string(),
-        toNodeId: z.string(),
-        label: z.string().optional(),
-        style: z.enum(['arrow', 'line']).optional(),
-      }),
-    )
-    .optional()
-    .default([]),
-  citations: z.boolean(),
-});
-
 // ---------- 文件理解（Understanding）相关 ----------
 
 export const zChunk = z.object({
@@ -176,13 +122,4 @@ export function validateFlow(input: unknown): FlowGraph {
 /** 安全校验：返回成功结果或错误，不抛异常。 */
 export function safeValidateFlow(input: unknown) {
   return zFlowGraph.safeParse(input);
-}
-
-/** 校验并解析一个 SceneSpec。 */
-export function validateSceneSpec(input: unknown): SceneSpec {
-  return zSceneSpec.parse(input) as SceneSpec;
-}
-
-export function safeValidateSceneSpec(input: unknown) {
-  return zSceneSpec.safeParse(input);
 }

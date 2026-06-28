@@ -1,5 +1,7 @@
 # DSWeave · R3F Scene Player 技术文档
 
+> ⚠️ 已废弃：自 2026-06 起 DSWeave 改为 Agent 直接产出自包含 HTML（Host 注入 model-viewer 运行时 + 内联资产），不再使用预构建 R3F Player。本文档仅作历史参考。
+
 > 文档版本：v0.1 ｜ 配套：`02-technical-design.md`（§5.3 scene.html 生成、§4 SceneSpec）、`01-architecture.md`
 > 对象：`packages/player`。本篇是 Player 的单一权威说明，代码为最终准。
 

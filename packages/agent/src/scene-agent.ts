@@ -1,9 +1,9 @@
 /**
- * 启发式 SceneSpec Agent（M4a）：收到 prompt → 理解源/连线 → 产出合法 SceneSpec
- * → request_permission → 调用 Host 的 scene.html 能力产出自包含 HTML → done。
+ * 启发式 Agent（M4a）：收到 prompt → 理解源/连线 → 直接产出自包含 HTML
+ * → request_permission → 调用 Host 的 scene.html 能力（注入 model-viewer 运行时 + 内联资产）→ done。
  *
  * 这是「确定性、无 LLM」的可插拔 Agent：走与真实 Agent 完全相同的内部链路
- * （SceneSpec 契约 + capability/invoke + 权限流），让主竖切分步可验。
+ * （自撰 HTML + capability/invoke + 权限流），让主竖切分步可验。
  */
 import {
   AgentSideConnection,
@@ -24,7 +24,7 @@ function sleep(ms: number): Promise<void> {
 
 let sessionSeq = 0;
 
-/** 创建一个启发式 SceneSpec Agent 连接。 */
+/** 创建一个启发式 Agent 连接（直接产出自包含 HTML）。 */
 export function createSceneAgent(transport: AcpTransport): AgentSideConnection {
   const cancelled = new Set<string>();
   return new AgentSideConnection(transport, {
@@ -75,7 +75,7 @@ async function run(
     conn.sessionUpdate(sessionId, { type: 'edge-status', edgeId: edge.id, status: 'done' });
   }
 
-  // 3) 逐个输出节点：产出 SceneSpec → 校验 → 审批 → 调用能力产出
+  // 3) 逐个输出节点：产出自包含 HTML → 审批 → 调用能力产出
   const outputs = graph.nodes.filter((n) => n.kind === 'output');
   for (const node of outputs) {
     if (isCancelled()) return finish(conn, sessionId, 'cancelled');

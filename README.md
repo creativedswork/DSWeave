@@ -10,17 +10,17 @@
 
 ---
 
-## 核心理念：Agent 只产「数据」，不写「代码」
+## 核心理念：Agent 直接写自包含 HTML
 
-DSWeave 刻意做了一个架构取舍——**把会出错的代码留在构建期，产物一定可运行**：
+DSWeave 把渲染交还给 Agent，让产物天然离线自包含：
 
 ```
-拖文件 → 文件理解 → Agent 产出 SceneSpec(纯数据) → Host 注入预构建 Player → 自包含 3D HTML
+拖文件 → 文件理解 → Agent 直接写自包含 HTML → Host 注入 model-viewer 运行时 + 内联资产字节 → 自包含单文件 HTML
 ```
 
-- **Agent 不写 Three.js/React 代码**，它唯一的交付物是一份符合 `SceneSpec` schema 的 JSON。
-- **Player 是预构建的固定渲染器**（自研 R3F 运行时），把 `SceneSpec` + 资产注入后导出单文件 HTML。
-- 因此产物**一定能跑、可离线双击打开、内容寻址可缓存**；代价是「能画什么」由一套**可扩展的视觉词汇表**决定，而非任意代码。
+- **Agent 直接产出自包含 HTML**（含 `<model-viewer>` 标签与 `asset://` 占位引用），无需走预定义的数据 schema。
+- **Host 在产物后处理阶段做兜底**：注入 model-viewer 运行时、把 `asset://` 引用内联为 data URI 字节，确保产物离线可运行、无外链。
+- 因此产物**离线自包含、内容寻址可缓存**（hash 含最终 HTML 全文），双击即看。
 
 这也意味着 Agent 是**可插拔**的：`web → Host(内部协议) → Agent(官方 ACP over stdio)`。换 Agent，前端零改动。
 
@@ -46,7 +46,7 @@ DSWeave 刻意做了一个架构取舍——**把会出错的代码留在构建�
 1. **拖入文件**：画布上每个文件成为一个 source 节点，自动生成预览与「文件理解」（gltf 部件/材质、文档分块摘要、图片尺寸等）。
 2. **连线表达意图**：在节点间连线并写自然语言语义（如「图片在左，箭头从图片指向模型，标注‘生成’」）。
 3. **选输出类型**：输出节点选受限菜单中的类型（旗舰：`scene.html`）。
-4. **Start**：Host 把「图 + 文件理解 + 上下文」喂给 Agent；Agent 产出 `SceneSpec`；Host 校验后注入 Player → 产出自包含 HTML，iframe 实时预览，也可单独下载离线打开。
+4. **Start**：Host 把「图 + 文件理解 + 上下文」喂给 Agent；Agent 直接写自包含 HTML；Host 注入 model-viewer 运行时并内联 `asset://` 资产 → 产出自包含 HTML，iframe 实时预览，也可单独下载离线打开。
 
 执行过程（节点状态、工具调用、权限请求、日志）实时回流到右侧执行面板。
 
@@ -56,11 +56,10 @@ DSWeave 刻意做了一个架构取舍——**把会出错的代码留在构建�
 
 | 包 | 职责 |
 | --- | --- |
-| `@dsweave/core` | 节点图 / IR / `SceneSpec` / 类型 / zod schema（前后端共享） |
+| `@dsweave/core` | 节点图 / IR / 类型 / zod schema（前后端共享） |
 | `@dsweave/protocol` | 内部 ACP 封装：图→prompt 编码、update→事件解码、transport 抽象、`capability/invoke` |
-| `@dsweave/host` | Node 进程：WS 桥接、文件服务、文件理解、上下文工程、能力执行（`scene.html`）、Agent 管理（含官方 ACP 接入 Claude） |
-| `@dsweave/agent` | 参考 ACP Agent（启发式 SceneSpec / Mock，可插拔） |
-| `@dsweave/player` | 自研 R3F 3D 运行时，数据驱动渲染 `SceneSpec` → 自包含产物 |
+| `@dsweave/host` | Node 进程：WS 桥接、文件服务、文件理解、上下文工程、能力执行（`scene.html` HTML 后处理：注入 model-viewer 运行时 + 内联 `asset://` 资产）、Agent 管理（含官方 ACP 接入 Claude） |
+| `@dsweave/agent` | 参考 ACP Agent（启发式 / Mock，直接产出自包含 HTML，可插拔） |
 | `@dsweave/web` | 前端编辑器：画布、文件预览、执行/产物/权限面板 |
 
 ---

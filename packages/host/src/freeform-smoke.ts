@@ -4,7 +4,7 @@
  *   → 假 adapter 写 index.html → Host 读盘 + 文本校验 → scene.html 能力（注入 model-viewer 运行时
  *   + 内联 asset:// 为 data URI）→ 自包含 HTML 产物。
  *
- * 与 m4b-smoke 不同：不依赖 Player bundle / SceneSpec，Agent 直接交付自由 HTML。
+ * Agent 直接交付自由 HTML（不依赖预构建 Player / 数据 schema）。
  * 运行：pnpm freeform:smoke
  */
 import { mkdtempSync, existsSync } from 'node:fs';
@@ -108,9 +108,6 @@ async function main() {
   const server = await startServer({
     port: PORT,
     workingDir,
-    // playerDistPath 不被 freeform 能力（scene.html v2）使用，仅旧 Player 路径会惰性读取；
-    // 这里给一个占位路径，将在 Task 9 删除旧 Player 链路后一并移除。
-    playerDistPath: resolve(process.cwd(), 'packages/player/dist/index.html'),
     agentConnector: inProcessClaudeAgentConnector({ command: 'node', args: [fakeAdapter] }),
     verbose: false,
   });

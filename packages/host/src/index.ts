@@ -1,7 +1,7 @@
 /**
  * @dsweave/host — Node 进程：WS/HTTP 服务、文件服务、文件理解、上下文工程、能力执行、Agent 管理。
  *
- * M4a：scene.html 能力（SceneSpec + 资产 → 预构建 Player bundle → 自包含 HTML 产物）；
+ * scene.html 能力：把 Agent 自撰 HTML 注入 model-viewer 运行时 + 内联 asset:// 资产 → 自包含 HTML 产物；
  * 产物内容寻址落盘 `.dsweave/artifacts/<hash>/`，经 HTTP 静态服务供前端 iframe 预览。
  */
 import { startServer, type RunningServer, type ServerOptions } from './server.js';
@@ -41,9 +41,7 @@ export interface HostOptions {
   workingDir: string;
   /** WebSocket / HTTP 监听端口。 */
   port?: number;
-  /** 预构建 Player 单文件 HTML 路径（缺省 <cwd>/packages/player/dist/index.html）。 */
-  playerDistPath?: string;
-  /** Agent 连接策略（缺省进程内启发式 SceneSpec Agent）。优先于 agentKind。 */
+  /** Agent 连接策略（缺省进程内启发式 Agent）。优先于 agentKind。 */
   agentConnector?: AgentConnector;
   /** 内置 Agent 类型（缺省 scene）；agentConnector 未提供时生效。 */
   agentKind?: AgentKind;
@@ -68,7 +66,6 @@ export function createHost(options: HostOptions): Host {
       const serverOpts: ServerOptions = {
         port: resolved.port,
         workingDir: resolved.workingDir,
-        playerDistPath: resolved.playerDistPath,
         agentConnector:
           resolved.agentConnector ?? connectorForKind(resolved.agentKind ?? 'scene'),
         verbose: resolved.verbose,
@@ -118,8 +115,6 @@ export type {
   ChunkInfo,
   OutputType,
 } from './capabilities/index.js';
-export { injectPlayer } from './export/inject-player.js';
-export type { PlayerPayload } from './export/inject-player.js';
 export {
   ProviderRegistry,
   createDefaultRegistry,

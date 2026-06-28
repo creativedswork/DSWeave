@@ -1,8 +1,8 @@
 /**
  * 能力注册表：Host 把「输出类型」背后的产出能力以可插拔单元注册，供 Agent 调用。
  *
- * Agent 只声明意图（SceneSpec / 输出类型），真正「产出可运行产物」由 Host 能力完成，
- * 把易错的代码固化在 Host/构建期。能力 id 与输出类型注册表对齐（输出菜单从能力派生）。
+ * Agent 直接产出自包含 HTML，Host 能力在产出阶段做后处理兜底（注入 model-viewer 运行时 + 内联资产），
+ * 确保产物离线可运行。能力 id 与输出类型注册表对齐（输出菜单从能力派生）。
  */
 import type { CapabilityInvokeResult } from '@dsweave/protocol';
 import type { UnderstandingService } from '../understanding-service.js';

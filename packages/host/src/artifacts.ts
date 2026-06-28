@@ -1,12 +1,11 @@
 /**
- * 产物存储：内容寻址落盘 `.dsweave/artifacts/<hash>/`，并加载预构建 Player bundle 模板。
+ * 产物存储：内容寻址落盘 `.dsweave/artifacts/<hash>/`。
  *
  * - 单文件 HTML 直接交付（双击即看）；Host 经静态服务 `/_artifacts/<hash>/...` 供前端 iframe 预览。
- * - 缓存：以产物内容 hash 命名目录，存在即命中（key 隐含 Player 版本，因模板内联其中）。
+ * - 缓存：以产物内容 hash 命名目录（hash 含最终 HTML 全文），存在即命中。
  */
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
-import { resolve, join, normalize } from 'node:path';
+import { existsSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
+import { join, normalize } from 'node:path';
 import type { Artifact } from '@dsweave/core';
 
 const ARTIFACT_DIR = '.dsweave/artifacts';
@@ -14,39 +13,13 @@ const ARTIFACT_DIR = '.dsweave/artifacts';
 export interface ArtifactStoreOptions {
   /** 沙箱工作目录（产物落盘根）。 */
   rootDir: string;
-  /** 预构建 Player 单文件 HTML 路径（缺省 <cwd>/packages/player/dist/index.html）。 */
-  playerDistPath?: string;
 }
 
 export class ArtifactStore {
   private readonly rootDir: string;
-  private readonly playerDistPath: string;
-  private templateCache: string | null = null;
-  private versionCache: string | null = null;
 
   constructor(opts: ArtifactStoreOptions) {
     this.rootDir = opts.rootDir;
-    this.playerDistPath =
-      opts.playerDistPath ?? resolve(process.cwd(), 'packages/player/dist/index.html');
-  }
-
-  /** 读取（并缓存）预构建 Player 模板。未构建时抛出可操作的错误。 */
-  playerTemplate(): string {
-    if (this.templateCache != null) return this.templateCache;
-    if (!existsSync(this.playerDistPath)) {
-      throw new Error(
-        `Player bundle 未构建：${this.playerDistPath}。请先运行 \`pnpm --filter @dsweave/player build\`。`,
-      );
-    }
-    this.templateCache = readFileSync(this.playerDistPath, 'utf-8');
-    this.versionCache = createHash('sha256').update(this.templateCache).digest('hex').slice(0, 12);
-    return this.templateCache;
-  }
-
-  /** Player 版本指纹（模板内容 hash 前 12 位）。 */
-  playerVersion(): string {
-    if (this.versionCache == null) this.playerTemplate();
-    return this.versionCache as string;
   }
 
   private dir(hash: string): string {

@@ -30,7 +30,7 @@ export function inProcessMockConnector(): AgentEndpoint {
   };
 }
 
-/** 进程内启发式 SceneSpec Agent（M4a：产出 SceneSpec → scene.html 能力）。 */
+/** 进程内启发式 Agent（M4a：直接产出自包含 HTML → scene.html 能力）。 */
 export function inProcessSceneAgentConnector(): AgentEndpoint {
   const [hostSide, agentSide] = createMemoryTransportPair();
   const agent = createSceneAgent(agentSide);
@@ -42,7 +42,7 @@ export function inProcessSceneAgentConnector(): AgentEndpoint {
 
 /**
  * Claude 驱动的内部 Agent（M4b）：进程内 AgentSideConnection，onPrompt 经官方 ACP
- * 驱动 claude-agent-acp 产出 SceneSpec → scene.html 能力。前端/内部协议/能力链路不变。
+ * 驱动 claude-agent-acp 产出自包含 HTML → scene.html 能力。前端/内部协议/能力链路不变。
  */
 export function inProcessClaudeAgentConnector(options: ClaudeAgentOptions = {}): AgentConnector {
   return () => {
@@ -57,7 +57,7 @@ export function inProcessClaudeAgentConnector(options: ClaudeAgentOptions = {}):
 
 /**
  * Gemini 驱动的内部 Agent：进程内 AgentSideConnection，onPrompt 经官方 ACP 驱动
- * `gemini --acp` 产出 SceneSpec → scene.html 能力。与 Claude 后端同构、可热插拔，
+ * `gemini --acp` 产出自包含 HTML → scene.html 能力。与 Claude 后端同构、可热插拔，
  * 前端/内部协议/能力链路不变。
  */
 export function inProcessGeminiAgentConnector(options: GeminiAgentOptions = {}): AgentConnector {
