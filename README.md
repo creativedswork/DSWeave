@@ -4,9 +4,9 @@
 
 > 你只提供「素材 + 关系」，DSWeave 负责把它编排成一个可旋转、可点击、可离线打开的 3D 网页——无需写一行渲染代码。
 
-![DSWeave 演示](docs/assets/dsweave_showcase.gif)
+https://github.com/user-attachments/assets/40e478af-dd00-4e43-a6fb-d57453b05be6
 
-上图是一次真实体验：拖入一个 `Character_Running.glb` 模型和一张 `character_fullbody.png` 图片，连到「输出节点」，输出类型选 **3D 沉浸场景（`scene.html`）**，点 **Start**，几秒后就得到一个把图片与模型空间化编排在一起的 3D 页面。
+上面的视频是一次真实体验：拖入一个 `Character_Running.glb` 模型和一张 `character_fullbody.png` 图片，连到「输出节点」，输出类型选 **3D 沉浸场景（`scene.html`）**，点 **Start**，几秒后就得到一个把图片与模型空间化编排在一起的 3D 页面。
 
 ---
 
