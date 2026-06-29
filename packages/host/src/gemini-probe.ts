@@ -178,9 +178,18 @@ async function main(): Promise<void> {
   // 2) session/new
   log('session/new ...');
   let sessionId: string;
+  let modeState:
+    | { currentModeId?: string; availableModes?: { id: string; name?: string }[] }
+    | null
+    | undefined;
   try {
     const session = await conn.newSession({ cwd: workspace, mcpServers: [] });
     sessionId = session.sessionId;
+    modeState = (
+      session as {
+        modes?: { currentModeId?: string; availableModes?: { id: string; name?: string }[] } | null;
+      }
+    ).modes;
   } catch (err) {
     console.error('\n[gemini-probe] session/new 失败。');
     const e = err as { code?: number; message?: string };
@@ -195,6 +204,39 @@ async function main(): Promise<void> {
     return;
   }
   log('session/new ok. sessionId =', sessionId);
+
+  // 2.5) session modes：打印当前/可用模式，并按需切到「自动批准」类模式。
+  //      这是定位「Gemini 只回文字就 end_turn、不写文件」的关键证据。
+  if (modeState?.currentModeId && modeState.availableModes?.length) {
+    const available = modeState.availableModes;
+    log(
+      'session modes：current =',
+      modeState.currentModeId,
+      '| available =',
+      available.map((m) => m.id).join(', '),
+    );
+    const pref = process.env.ACP_SESSION_MODE;
+    let target: string | undefined;
+    if (pref && pref !== 'off') {
+      target = available.find((m) => m.id === pref)?.id;
+      if (!target) log('期望模式不在 availableModes：', pref);
+    } else if (pref !== 'off') {
+      const re = /yolo|auto|accept|bypass|full|all[-_ ]?access|自动|全部|允许/i;
+      target = available.find(
+        (m) => m.id !== modeState!.currentModeId && (re.test(m.id) || re.test(m.name ?? '')),
+      )?.id;
+    }
+    if (target && target !== modeState.currentModeId) {
+      try {
+        await conn.setSessionMode({ sessionId, modeId: target });
+        log('已切换 session mode →', target, '（自动批准工具）');
+      } catch (err) {
+        log('切换 session mode 失败：', (err as Error)?.message ?? err);
+      }
+    }
+  } else {
+    log('session/new 未返回 modes（单一模式或不支持模式切换）');
+  }
 
   // 3) prompt turn —— 让 Gemini 用 fs 工具写出哨兵文件
   const promptText =

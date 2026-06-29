@@ -32,6 +32,25 @@ export interface ClaudeAcpOptions {
   args?: string[];
   /** 透传给子进程的环境变量（默认继承 process.env）。 */
   env?: NodeJS.ProcessEnv;
+  /**
+   * 会话级日志回调（init 期间的诊断信息，如 session modes / 模式切换）。
+   * 不提供时回退到 stderr，确保 dev:host 终端可见。
+   */
+  onLog?: (text: string, level?: 'info' | 'warn' | 'error') => void;
+  /**
+   * 期望的 session mode：
+   *   - 具体 modeId：强制切到该模式（须在 availableModes 内）。
+   *   - 'off'：不自动切换，保持 agent 默认模式。
+   *   - 未设置（undefined）：启发式选一个「自动批准/yolo」类模式（若存在）。
+   * 也可经环境变量 ACP_SESSION_MODE 覆盖。
+   */
+  sessionMode?: string;
+}
+
+/** ACP session mode 快照（来自 session/new 的 modes 字段）。 */
+export interface AcpSessionModes {
+  currentModeId: string;
+  availableModes: { id: string; name: string }[];
 }
 
 export interface PromptHandlers {
@@ -79,8 +98,63 @@ export class ClaudeAcpSession {
   private sessionId?: string;
   private cwd = '';
   private handlers: PromptHandlers = {};
+  private modes?: AcpSessionModes;
 
   constructor(private readonly opts: ClaudeAcpOptions = {}) {}
+
+  /** 会话级日志：优先回调，否则落到 stderr（dev:host 终端可见）。 */
+  private slog(text: string, level: 'info' | 'warn' | 'error' = 'info'): void {
+    if (this.opts.onLog) this.opts.onLog(text, level);
+    else console.error(`[acp]${level === 'info' ? '' : `[${level}]`} ${text}`);
+  }
+
+  /** session/new 返回的 modes 快照（无则 undefined）。 */
+  getModes(): AcpSessionModes | undefined {
+    return this.modes;
+  }
+
+  /**
+   * 按 opts.sessionMode / ACP_SESSION_MODE 解析并切换到目标模式。
+   *
+   * 背景：部分 agent（典型如 Gemini CLI `--acp`）的默认模式不会主动执行写文件工具，
+   * 表现为「只回一段文字就 end_turn、一个工具都不调」。官方 ACP 提供 session/set_mode
+   * 切到 auto-approve / yolo 类模式即可让其真正动手。我们本就自动放行 permission，
+   * 切到更宽松的模式不改变安全姿态。详见 https://geminicli.com/docs/cli/acp-mode/
+   */
+  private async applyPreferredMode(): Promise<void> {
+    if (!this.conn || !this.sessionId) return;
+    const modes = this.modes;
+    if (!modes?.availableModes?.length) return;
+    const current = modes.currentModeId;
+    const available = modes.availableModes;
+    this.slog(
+      `session modes：current=${current}，available=[${available
+        .map((m) => `${m.id}${m.name && m.name !== m.id ? `(${m.name})` : ''}`)
+        .join(', ')}]`,
+    );
+
+    const pref = this.opts.sessionMode ?? process.env.ACP_SESSION_MODE;
+    if (pref === 'off') return;
+
+    let target: string | undefined;
+    if (pref) {
+      if (available.some((m) => m.id === pref)) target = pref;
+      else this.slog(`期望的 session mode「${pref}」不在 availableModes 中，已忽略`, 'warn');
+    } else {
+      // 启发式：挑一个「自动批准/全权」类模式（id 或 name 命中关键词），且不同于当前。
+      const re = /yolo|auto|accept|bypass|full|all[-_ ]?access|自动|全部|允许/i;
+      const cand = available.find((m) => m.id !== current && (re.test(m.id) || re.test(m.name)));
+      if (cand) target = cand.id;
+    }
+
+    if (!target || target === current) return;
+    try {
+      await this.conn.setSessionMode({ sessionId: this.sessionId, modeId: target });
+      this.slog(`已切换 session mode → ${target}（自动批准工具，确保 agent 真正写文件）`);
+    } catch (err) {
+      this.slog(`切换 session mode 失败（${target}）：${(err as Error)?.message ?? err}`, 'warn');
+    }
+  }
 
   /** spawn adapter，完成 initialize + session/new，cwd 作为 Agent 文件工具的工作目录。 */
   async init(cwd: string): Promise<void> {
@@ -164,6 +238,18 @@ export class ClaudeAcpSession {
     });
     const session = await this.conn.newSession({ cwd: this.cwd, mcpServers: [] });
     this.sessionId = session.sessionId;
+
+    // 捕获 session modes 并按需切到「自动批准」类模式（修 Gemini「不写文件就 end_turn」）。
+    const modeState = (session as { modes?: { currentModeId?: string; availableModes?: { id: string; name?: string }[] } | null }).modes;
+    if (modeState?.currentModeId && modeState.availableModes?.length) {
+      this.modes = {
+        currentModeId: modeState.currentModeId,
+        availableModes: modeState.availableModes.map((m) => ({ id: m.id, name: m.name ?? m.id })),
+      };
+    } else {
+      this.slog('session/new 未返回 modes（该 agent 不支持模式切换或仅单一模式）', 'info');
+    }
+    await this.applyPreferredMode();
   }
 
   /** 发一轮 prompt（文本），等待 turn 结束，返回 stopReason 与累计文本。 */

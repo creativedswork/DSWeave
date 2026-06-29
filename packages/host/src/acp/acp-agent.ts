@@ -147,7 +147,12 @@ async function run(
   }
 
   const { command, args } = backend.resolveCommand(options);
-  const session = new AcpSession({ ...options, command, args });
+  const session = new AcpSession({
+    ...options,
+    command,
+    args,
+    onLog: (text, level) => log(text, level ?? 'info'),
+  });
   const toolId = `${backend.slug}_${outputNodeId}`;
   let lineBuf = '';
   const flush = (force = false) => {
@@ -160,14 +165,22 @@ async function run(
   try {
     conn.sessionUpdate(sessionId, { type: 'node-status', nodeId: outputNodeId, status: 'running' });
     log(`启动 ${backend.label}（官方 ACP）…`);
+    log(`adapter：${command} ${args.join(' ')} · cwd=${cwd}`);
     await session.init(cwd);
 
+    // 诊断计数（每轮 turn 重置）：surface「Gemini 这轮到底做了什么」。
+    let toolCalls = 0;
+    let thoughtChars = 0;
     const handlers = {
       onText: (t: string) => {
         lineBuf += t;
         flush();
       },
-      onToolCall: (info: { id: string; title: string; status: string }) =>
+      onThought: (t: string) => {
+        thoughtChars += t.length;
+      },
+      onToolCall: (info: { id: string; title: string; status: string }) => {
+        toolCalls++;
         conn.sessionUpdate(sessionId, {
           type: 'tool-call',
           id: info.id,
@@ -175,7 +188,8 @@ async function run(
           state:
             info.status === 'completed' ? 'done' : info.status === 'failed' ? 'error' : 'running',
           nodeId: outputNodeId,
-        }),
+        });
+      },
       onPermission: (summary: string) =>
         conn.requestPermission(sessionId, `${backend.label} 请求：${summary}`, ['允许', '拒绝']),
     };
@@ -185,10 +199,26 @@ async function run(
     let promptText = text;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       if (isCancelled()) return finish(conn, sessionId, 'cancelled', session, cwd);
+      toolCalls = 0;
+      thoughtChars = 0;
       const outcome = await session.prompt(promptText, handlers);
       flush(true);
+      // 诊断：这轮 turn 的画像（stopReason / 文本 / 工具 / 思考 / 是否写出文件）。
+      log(
+        `${backend.label} turn#${attempt + 1} 结束：stopReason=${outcome.stopReason}、` +
+          `文本 ${outcome.agentText.length} 字、工具 ${toolCalls} 次、思考 ${thoughtChars} 字、` +
+          `${OUTPUT_FILENAME} ${existsSync(htmlPath) ? '已写' : '未写'}`,
+        outcome.stopReason === 'end_turn' ? 'info' : 'warn',
+      );
       if (outcome.stopReason !== 'end_turn') {
         log(`${backend.label} turn 异常结束：${outcome.stopReason}`, 'warn');
+      } else if (toolCalls === 0 && !existsSync(htmlPath)) {
+        // end_turn 但完全没用工具/没写文件 → 多半模型把任务当成聊天答复了（常见于 Gemini）。
+        log(
+          `${backend.label} 未调用任何工具就结束本轮——通常意味着它没有以「写文件」模式工作。` +
+            `请确认该后端处于可用工具/自动批准模式，或检查鉴权与模型配置。`,
+          'warn',
+        );
       }
       if (!existsSync(htmlPath)) {
         if (attempt < maxRetries) {
